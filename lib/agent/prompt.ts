@@ -1,7 +1,11 @@
 import { ROOMS } from '../hotel.ts';
 import type { InventoryItem } from '../inventory.ts';
 
-export function systemPrompt(items: InventoryItem[]): string {
+// Muse Spark always reasons before answering (there is no "off"); this halves
+// the reasoning tokens on a call turn. See scripts/agent-ablation.mts.
+export const FAST_NUDGE = '\n\nThis is a live phone call: decide fast, think as little as possible.';
+
+export function systemPrompt(items: InventoryItem[], fast = true): string {
   const byCategory = new Map<string, string[]>();
   for (const i of items) byCategory.set(i.category, [...(byCategory.get(i.category) ?? []), i.name]);
   const menu = [...byCategory].map(([c, names]) => `${c}: ${names.join(', ')}`).join('\n');
@@ -17,5 +21,5 @@ Rules:
 - If the guest says goodbye or wants nothing, call end_call.
 
 Items we deliver:
-${menu}`;
+${menu}${fast ? FAST_NUDGE : ''}`;
 }

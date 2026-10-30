@@ -16,7 +16,9 @@ export type ToolDef = {
 };
 
 export const MODELS = {
-  spark: process.env.SPARK_MODEL ?? 'muse-spark-1.3',
+  // 1.1 answers a call turn in ~0.9 s vs ~1.7 s for 1.3, equally correct on
+  // the call script (scripts/agent-ablation.mts, 2026-10-30).
+  spark: process.env.SPARK_MODEL ?? 'muse-spark-1.1',
   wonder: process.env.WONDER_MODEL ?? 'muse-wonder-1.0',
   // Set BRAIN_MODEL=muse-spark-1.3 while testing to save credits for the recording.
   brain: process.env.BRAIN_MODEL ?? 'muse-wonder-1.0',
