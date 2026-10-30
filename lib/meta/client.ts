@@ -30,6 +30,9 @@ export async function chat(opts: {
   messages: ChatMessage[];
   tools?: ToolDef[];
   maxTokens?: number;
+  // Muse models reason before answering and the reasoning counts against
+  // maxTokens; 'minimal' keeps a voice turn near 2 s instead of 4 s.
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
   timeoutMs?: number;
 }): Promise<AssistantMessage> {
   const res = await fetch(`${BASE_URL}/chat/completions`, {
@@ -40,10 +43,15 @@ export async function chat(opts: {
       messages: opts.messages,
       ...(opts.tools?.length ? { tools: opts.tools } : {}),
       ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
     }),
     signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`meta ${res.status}: ${body.slice(0, 200)}`);
-  return JSON.parse(body).choices[0].message;
+  const choice = JSON.parse(body).choices[0];
+  if (!choice.message.content && !choice.message.tool_calls?.length) {
+    throw new Error(`meta returned an empty message (finish_reason ${choice.finish_reason})`);
+  }
+  return choice.message;
 }
