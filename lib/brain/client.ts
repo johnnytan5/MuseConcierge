@@ -5,9 +5,13 @@
 import type { FleetClient } from '../sim/client.ts';
 import type { EventWithContext } from '../sim/protocol.ts';
 import type { BrainDecision, FleetEvent, FleetSnapshot } from '../fleet/types.ts';
-import { fallbackDecision } from './decide.ts';
+import { fallbackDecision, decisionFor } from './decide.ts';
+
+// Same option, ignoring the free-text reason.
+const sameChoice = (a: BrainDecision, b: BrainDecision) => JSON.stringify({ ...a, reason: '' }) === JSON.stringify({ ...b, reason: '' });
 import { describe } from './describe.ts';
 import { optionsFor } from '../fleet/options.ts';
+import { notification, type RoomNotification } from '../fleet/notify.ts';
 
 export type BrainEntry = {
   id: number;
@@ -20,6 +24,8 @@ export type BrainEntry = {
   ms?: number;
   line?: string;
   error?: string;
+  etaS?: number; // ETA of the chosen option
+  notify?: RoomNotification | null;
 };
 
 let nextId = 1;
@@ -60,9 +66,12 @@ export async function decide(
     error = result.error;
     result = await fleet.apply(decision);
   }
-  const opt = context.options.find((o) => o.action === 'charge_then_continue');
+  const chosen = context.options.find((o) => decisionFor(context.taskId, o, '') && sameChoice(decisionFor(context.taskId, o, ''), decision));
+  const etaS = chosen && 'eta_s' in chosen ? chosen.eta_s : undefined;
+  const task = snapshot.tasks.find((t) => t.id === context.taskId);
   update({
-    ...entry, pending: false, decision, source, ms, error,
-    line: describe(event, decision, opt && 'eta_s' in opt ? opt.eta_s : undefined),
+    ...entry, pending: false, decision, source, ms, error, etaS,
+    line: describe(event, decision, etaS),
+    notify: task ? notification(event, decision, task, etaS) : null,
   });
 }
