@@ -9,6 +9,8 @@
 import { WebSocketServer, WebSocket } from 'ws';
 
 const PORT = Number(process.env.ASR_RELAY_PORT ?? process.env.PORT ?? 8787);
+// Loopback only by default: on a server a tunnel or reverse proxy fronts it.
+const HOST = process.env.ASR_RELAY_HOST ?? '127.0.0.1';
 const UPSTREAM = 'wss://api.meta.ai/v1/asr/realtime';
 const ORIGINS = (process.env.ASR_RELAY_ORIGINS ?? 'http://localhost:3000').split(',');
 const MAX_SESSION_MS = 5 * 60 * 1000; // a hotel call is short; caps spend if a tab is left open
@@ -16,6 +18,7 @@ const MAX_SESSION_MS = 5 * 60 * 1000; // a hotel call is short; caps spend if a 
 if (!process.env.META_API_KEY) throw new Error('META_API_KEY not set');
 
 const wss = new WebSocketServer({
+  host: HOST,
   port: PORT,
   verifyClient: ({ origin }) => ORIGINS.includes(origin),
 });
@@ -61,4 +64,4 @@ wss.on('connection', (client) => {
   client.on('error', () => closeBoth(1000, ''));
 });
 
-console.log(`ASR relay on ws://localhost:${PORT} for ${ORIGINS.join(', ')}`);
+console.log(`ASR relay on ws://${HOST}:${PORT} for ${ORIGINS.join(', ')}`);
