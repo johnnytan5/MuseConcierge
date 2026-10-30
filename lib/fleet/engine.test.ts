@@ -158,3 +158,37 @@ test('getTask reports status, robot and a counting-down ETA', () => {
   assert.ok(v.eta_seconds <= eta_seconds - 9 && v.eta_seconds >= 0);
   assert.equal(fleet.getTask('nope'), null);
 });
+
+test('two robots sent to pickup at once take turns and both deliver', () => {
+  const { fleet, run } = setup();
+  const a = fleet.createTask({ item: 'towel', qty: 2, room: '804', callId: 'c1' }).task_id;
+  const b = fleet.createTask({ item: 'pillow', qty: 1, room: '801', callId: 'c2' }).task_id;
+  assert.ok(fleet.apply({ assign: a, to: 'robot_1', reason: '' }).ok);
+  assert.ok(fleet.apply({ assign: b, to: 'robot_2', reason: '' }).ok);
+  let bothLoading = false;
+  run(200, () => {
+    bothLoading ||= fleet.robots.every((r) => r.phase === 'loading');
+    return task(fleet, a).status === 'delivered' && task(fleet, b).status === 'delivered';
+  });
+  assert.equal(bothLoading, false, 'never two robots at the pickup');
+  assert.equal(task(fleet, a).status, 'delivered');
+  assert.equal(task(fleet, b).status, 'delivered');
+});
+
+test('robots never pass closer than 0.45 m centre to centre', () => {
+  const { fleet, run } = setup({ demoFault: true });
+  fleet.seedDemo();
+  const { task_id } = fleet.createTask({ item: 'towel', qty: 2, room: '804', callId: 'c1' });
+  fleet.apply({ assign: task_id, to: 'robot_1', reason: '' });
+  let minGap = Infinity;
+  run(150, () => {
+    const [p, q] = fleet.robots.map((r) => r.pose);
+    minGap = Math.min(minGap, Math.hypot(p.x - q.x, p.y - q.y));
+    const opts = optionsFor(task_id, fleet.snapshot());
+    const h = opts.find((o) => o.action === 'handoff');
+    if (h && h.action === 'handoff') fleet.apply({ handoff: task_id, to: 'robot_2', preempt: h.preempts, reason: '' });
+    return task(fleet, task_id).status === 'delivered';
+  });
+  assert.equal(task(fleet, task_id).status, 'delivered');
+  assert.ok(minGap > 0.45, `closest approach ${minGap.toFixed(2)} m`);
+});

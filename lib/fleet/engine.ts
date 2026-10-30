@@ -9,6 +9,9 @@ import type { FleetApi, TaskView } from '../agent/tools.ts';
 
 const START_BATTERY: Record<RobotId, number> = { robot_1: 64, robot_2: 82 };
 const FAULT_RADIUS = 0.5; // m around fault_point where demo mode fires the fault
+const YIELD_DIST = 0.8; // m: stop if another robot is this close ahead
+const YIELD_CONE = 0.9; // rad either side of the heading that counts as "ahead"
+const PICKUP_CLEAR = 0.9; // m: a robot this close to the pickup still occupies it
 const MOVING = new Set(['to_pickup', 'to_room', 'returning']);
 
 export type ApplyResult = { ok: true } | { ok: false; error: string };
@@ -158,7 +161,9 @@ export class Fleet implements FleetApi {
       r.pose = p;
       sim.lid(r.id, r.phase === 'at_room');
 
-      if (MOVING.has(r.phase)) {
+      if (MOVING.has(r.phase) && this.mustWait(r)) {
+        sim.drive(r.id, 0, 0);
+      } else if (MOVING.has(r.phase)) {
         const c = pursue(p, r.path, r.wp);
         r.wp = c.idx;
         sim.drive(r.id, c.v, c.w);
@@ -205,6 +210,34 @@ export class Fleet implements FleetApi {
         this.setPath(r, doorOf(t.room));
       } else this.dock(r);
     }
+  }
+
+  // Two simple traffic rules instead of a planner: one robot at the pickup
+  // at a time (the closer one goes first), and stop for a robot close ahead
+  // (if both block each other, robot_1 has right of way).
+  mustWait(r: Robot): boolean {
+    const [px, py] = NODES.pickup;
+    const toPickup = (q: Robot) => Math.hypot(q.pose.x - px, q.pose.y - py);
+    for (const o of this.robots) {
+      if (o.id === r.id) continue;
+      if (r.phase === 'to_pickup' && r.wp >= r.path.length - 2) {
+        const occupied = o.phase === 'loading'
+          || (o.phase === 'to_pickup' && o.wp >= o.path.length - 2 && toPickup(o) < toPickup(r))
+          || (o.phase !== 'to_pickup' && toPickup(o) < PICKUP_CLEAR);
+        if (occupied) return true;
+      }
+      if (this.blocks(r, o) && !(this.blocks(o, r) && r.id === 'robot_1')) return true;
+    }
+    return false;
+  }
+
+  // Is o close and roughly ahead of r?
+  blocks(r: Robot, o: Robot): boolean {
+    const dx = o.pose.x - r.pose.x;
+    const dy = o.pose.y - r.pose.y;
+    if (Math.hypot(dx, dy) > YIELD_DIST) return false;
+    const ang = Math.atan2(dy, dx) - r.pose.yaw;
+    return Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang))) < YIELD_CONE;
   }
 
   maybeDemoFault(r: Robot): void {
