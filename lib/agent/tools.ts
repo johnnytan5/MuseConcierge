@@ -13,10 +13,12 @@ export type TaskView = {
   robot: string | null;
 };
 
+// Sync in the engine itself, async through the sim worker; tools await either.
+type MaybeAsync<T> = T | Promise<T>;
 export type FleetApi = {
-  createTask(i: { item: string; qty: number; room: string; callId: string }): { task_id: string; eta_seconds: number };
-  getTask(id: string): TaskView | null;
-  cancelTask(id: string): boolean;
+  createTask(i: { item: string; qty: number; room: string; callId: string }): MaybeAsync<{ task_id: string; eta_seconds: number }>;
+  getTask(id: string): MaybeAsync<TaskView | null>;
+  cancelTask(id: string): MaybeAsync<boolean>;
 };
 
 export type ToolContext = { callId: string; items: string[] };
@@ -34,7 +36,7 @@ export function matchItem(raw: string, items: string[]): { item: string } | { ca
   return hits.length === 1 ? { item: hits[0] } : { candidates: hits };
 }
 
-export function runTool(name: string, args: unknown, fleet: FleetApi, ctx: ToolContext): object {
+export async function runTool(name: string, args: unknown, fleet: FleetApi, ctx: ToolContext): Promise<object> {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (name) {
     case 'create_task': {
@@ -47,13 +49,13 @@ export function runTool(name: string, args: unknown, fleet: FleetApi, ctx: ToolC
           : { error: `"${a.item}" is not something we deliver.` };
       }
       const qty = Math.min(MAX_QTY, Math.max(1, Math.round(Number(a.qty) || 1)));
-      const t = fleet.createTask({ item: m.item, qty, room, callId: ctx.callId });
+      const t = await fleet.createTask({ item: m.item, qty, room, callId: ctx.callId });
       return { ...t, item: m.item, qty, room };
     }
     case 'get_task_status':
-      return fleet.getTask(String(a.task_id)) ?? { error: `no task ${a.task_id}` };
+      return (await fleet.getTask(String(a.task_id))) ?? { error: `no task ${a.task_id}` };
     case 'cancel_task':
-      return fleet.cancelTask(String(a.task_id)) ? { cancelled: true } : { error: `cannot cancel ${a.task_id}` };
+      return (await fleet.cancelTask(String(a.task_id))) ? { cancelled: true } : { error: `cannot cancel ${a.task_id}` };
     case 'end_call':
       return { ended: true };
     default:

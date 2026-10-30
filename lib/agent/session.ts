@@ -74,7 +74,7 @@ export class CallSession {
       for (const call of message.tool_calls) {
         let args: unknown = {};
         try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* the tool reports bad args */ }
-        const result = runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items });
+        const result = await runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items });
         this.onLog({ kind: 'tool', name: call.function.name, args, result, ms });
         this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         if (call.function.name === 'end_call') hangUp = true;

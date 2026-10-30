@@ -1,0 +1,85 @@
+// SimPort over MuJoCo (WASM): the engine's drive/lid/pose calls become wheel
+// and lid actuator targets on public/sim/floor.xml.
+import type { Pose, RobotId, SimPort } from '../fleet/types.ts';
+import { ROBOT_IDS } from '../fleet/types.ts';
+
+const WHEEL_R = 0.06; // m, floor.xml wheel radius
+const TRACK = 0.38; // m between wheel centres
+// Wheel actuators are velocity servos, so ctrl (rad/s) maps to ground speed
+// almost 1:1; measured 0.896 m of 0.9 m commanded over 3 s. Re-measure if
+// the wheels, masses or kv change.
+const WHEEL_GAIN = 1.0;
+const LID_OPEN = 0.3; // m of lid slide travel
+const BASE_Z = 0.065; // free-joint height when resting on the floor
+
+// The subset of the @mujoco/mujoco module this file uses.
+type Mujoco = {
+  mjtObj: { mjOBJ_ACTUATOR: { value: number }; mjOBJ_JOINT: { value: number }; mjOBJ_BODY: { value: number } };
+  mj_name2id(m: unknown, type: number, name: string): number;
+  mj_step(m: unknown, d: unknown): void;
+  mj_forward(m: unknown, d: unknown): void;
+};
+type Model = { opt: { timestep: number }; jnt_qposadr: ArrayLike<number>; jnt_dofadr: ArrayLike<number> };
+type Data = { ctrl: Float64Array; qpos: Float64Array; qvel: Float64Array; xpos: Float64Array; xquat: Float64Array; time: number };
+
+type Ids = { body: number; qpos: number; dof: number; wl: number; wr: number; lid: number };
+
+export class MjSim implements SimPort {
+  mj: Mujoco;
+  model: Model;
+  data: Data;
+  ids: Record<RobotId, Ids>;
+
+  constructor(mj: Mujoco, model: Model, data: Data) {
+    this.mj = mj;
+    this.model = model;
+    this.data = data;
+    const id = (type: { value: number }, name: string) => {
+      const i = mj.mj_name2id(model, type.value, name);
+      if (i < 0) throw new Error(`floor.xml has no ${name}`);
+      return i;
+    };
+    const ids = {} as Record<RobotId, Ids>;
+    for (const r of ROBOT_IDS) {
+      const root = id(mj.mjtObj.mjOBJ_JOINT, `${r}_root`);
+      ids[r] = {
+        body: id(mj.mjtObj.mjOBJ_BODY, r),
+        qpos: model.jnt_qposadr[root],
+        dof: model.jnt_dofadr[root],
+        wl: id(mj.mjtObj.mjOBJ_ACTUATOR, `${r}_wl`),
+        wr: id(mj.mjtObj.mjOBJ_ACTUATOR, `${r}_wr`),
+        lid: id(mj.mjtObj.mjOBJ_ACTUATOR, `lid_${r}`),
+      };
+    }
+    this.ids = ids;
+  }
+
+  pose(r: RobotId): Pose {
+    const b = this.ids[r].body;
+    const [w, x, y, z] = this.data.xquat.subarray(4 * b, 4 * b + 4);
+    return { x: this.data.xpos[3 * b], y: this.data.xpos[3 * b + 1], yaw: Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)) };
+  }
+
+  drive(r: RobotId, v: number, w: number): void {
+    const i = this.ids[r];
+    this.data.ctrl[i.wl] = ((v - (w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
+    this.data.ctrl[i.wr] = ((v + (w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
+  }
+
+  lid(r: RobotId, open: boolean): void {
+    this.data.ctrl[this.ids[r].lid] = open ? LID_OPEN : 0;
+  }
+
+  teleport(r: RobotId, p: Pose): void {
+    const { qpos, dof } = this.ids[r];
+    this.data.qpos.set([p.x, p.y, BASE_Z, Math.cos(p.yaw / 2), 0, 0, Math.sin(p.yaw / 2)], qpos);
+    this.data.qvel.fill(0, dof, dof + 6);
+    this.mj.mj_forward(this.model, this.data);
+  }
+
+  // Advance physics by `seconds` of sim time.
+  step(seconds: number): void {
+    const n = Math.max(1, Math.round(seconds / this.model.opt.timestep));
+    for (let i = 0; i < n; i++) this.mj.mj_step(this.model, this.data);
+  }
+}

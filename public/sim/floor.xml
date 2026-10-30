@@ -1,0 +1,123 @@
+<!--
+  Muse Concierge: one hotel floor with two delivery robots.
+  Coordinates match lib/fleet/nav.ts (metres, z up): docks at x=0, pickup
+  station at x=2.5 on the south wall, rooms 801/803/805 on the north wall
+  and 802/804/806 on the south wall at x = 5, 8, 11.
+
+  Each robot is a lidded box on two driven wheels plus two frictionless
+  casters. Wheels use velocity actuators, so wheel speed (rad/s) tracks
+  ctrl closely and lib/sim/mjsim.ts can convert (v, w) directly.
+-->
+<mujoco model="muse_concierge_floor">
+  <option timestep="0.004" integrator="implicitfast"/>
+
+  <visual>
+    <headlight ambient="0.45 0.45 0.45" diffuse="0.6 0.6 0.6"/>
+  </visual>
+
+  <default>
+    <geom friction="1 0.005 0.0001" solref="0.01 1"/>
+    <default class="deco">
+      <geom contype="0" conaffinity="0"/>
+    </default>
+    <default class="wall">
+      <geom type="box" rgba="0.86 0.83 0.78 1"/>
+    </default>
+    <default class="door">
+      <geom type="box" contype="0" conaffinity="0" size="0.45 0.03 0.34" rgba="0.55 0.36 0.22 1"/>
+    </default>
+    <default class="wheel">
+      <geom type="cylinder" size="0.06 0.02" rgba="0.12 0.12 0.12 1" friction="1.2 0.005 0.0001" euler="90 0 0"/>
+      <joint type="hinge" axis="0 1 0" damping="0.02"/>
+    </default>
+    <default class="caster">
+      <geom type="sphere" size="0.03" rgba="0.3 0.3 0.3 1" condim="1" friction="0 0 0" priority="1"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light pos="5.5 0 6" dir="0 0 -1" diffuse="0.5 0.5 0.5"/>
+    <geom name="floor" type="plane" size="6.7 2.1 0.1" pos="5.8 0 0" rgba="0.74 0.71 0.66 1"/>
+    <geom name="carpet" class="deco" type="box" size="6.2 0.75 0.002" pos="5.7 0 0.002" rgba="0.48 0.18 0.2 1"/>
+
+    <!-- Walls: corridor runs x = -0.8 .. 12.4, y = -2 .. 2. Cut-away height
+         (0.7 m) so the overhead camera sees the robots past the near wall. -->
+    <geom name="wall_n" class="wall" size="6.6 0.05 0.35" pos="5.8 2.0 0.35"/>
+    <geom name="wall_s" class="wall" size="6.6 0.05 0.35" pos="5.8 -2.0 0.35"/>
+    <geom name="wall_w" class="wall" size="0.05 2.05 0.35" pos="-0.8 0 0.35"/>
+    <geom name="wall_e" class="wall" size="0.05 2.05 0.35" pos="12.4 0 0.35"/>
+
+    <!-- Room doors (decorative): odd rooms north, even rooms south -->
+    <geom name="door_801" class="door" pos="5 1.94 0.34"/>
+    <geom name="door_803" class="door" pos="8 1.94 0.34"/>
+    <geom name="door_805" class="door" pos="11 1.94 0.34"/>
+    <geom name="door_802" class="door" pos="5 -1.94 0.34"/>
+    <geom name="door_804" class="door" pos="8 -1.94 0.34"/>
+    <geom name="door_806" class="door" pos="11 -1.94 0.34"/>
+
+    <!-- Pickup station: staff load the robot's bin here -->
+    <geom name="pickup_counter" type="box" size="0.5 0.15 0.45" pos="2.5 -1.8 0.45" rgba="0.25 0.4 0.55 1"/>
+    <geom name="pickup_pad" class="deco" type="box" size="0.35 0.35 0.003" pos="2.5 -1.3 0.004" rgba="0.3 0.55 0.8 1"/>
+
+    <!-- Charging docks -->
+    <geom name="dock_1_pad" class="deco" type="box" size="0.32 0.32 0.003" pos="0 -0.8 0.004" rgba="0.95 0.65 0.15 1"/>
+    <geom name="dock_2_pad" class="deco" type="box" size="0.32 0.32 0.003" pos="0 0.8 0.004" rgba="0.2 0.7 0.55 1"/>
+
+    <!-- Robot 1 (amber trim) -->
+    <body name="robot_1" pos="0 -0.8 0.065">
+      <freejoint name="robot_1_root"/>
+      <geom name="robot_1_chassis" type="box" size="0.22 0.17 0.04" pos="0 0 0.02" mass="6" rgba="0.2 0.2 0.22 1"/>
+      <geom name="robot_1_body" type="box" size="0.2 0.16 0.22" pos="0 0 0.28" mass="4" rgba="0.93 0.93 0.9 1"/>
+      <geom name="robot_1_trim" class="deco" type="box" size="0.202 0.162 0.02" pos="0 0 0.12" rgba="0.95 0.65 0.15 1"/>
+      <geom name="robot_1_eye" class="deco" type="box" size="0.005 0.08 0.02" pos="0.2 0 0.42" rgba="0.2 0.8 1 1"/>
+      <camera name="cam_robot_1" pos="0.21 0 0.45" xyaxes="0 -1 0 0.2 0 1" fovy="70"/>
+      <body name="robot_1_lid" pos="0 0 0.505">
+        <joint name="lid_robot_1" type="slide" axis="-1 0 0" range="0 0.3" damping="40"/>
+        <geom name="robot_1_lid" type="box" size="0.2 0.16 0.012" mass="0.3" rgba="0.95 0.65 0.15 1"/>
+      </body>
+      <body name="robot_1_wl" pos="0 0.19 0">
+        <joint name="robot_1_wl" class="wheel"/>
+        <geom class="wheel" mass="0.4"/>
+      </body>
+      <body name="robot_1_wr" pos="0 -0.19 0">
+        <joint name="robot_1_wr" class="wheel"/>
+        <geom class="wheel" mass="0.4"/>
+      </body>
+      <geom name="robot_1_caster_f" class="caster" pos="0.17 0 -0.03"/>
+      <geom name="robot_1_caster_b" class="caster" pos="-0.17 0 -0.03"/>
+    </body>
+
+    <!-- Robot 2 (teal trim) -->
+    <body name="robot_2" pos="0 0.8 0.065">
+      <freejoint name="robot_2_root"/>
+      <geom name="robot_2_chassis" type="box" size="0.22 0.17 0.04" pos="0 0 0.02" mass="6" rgba="0.2 0.2 0.22 1"/>
+      <geom name="robot_2_body" type="box" size="0.2 0.16 0.22" pos="0 0 0.28" mass="4" rgba="0.93 0.93 0.9 1"/>
+      <geom name="robot_2_trim" class="deco" type="box" size="0.202 0.162 0.02" pos="0 0 0.12" rgba="0.2 0.7 0.55 1"/>
+      <geom name="robot_2_eye" class="deco" type="box" size="0.005 0.08 0.02" pos="0.2 0 0.42" rgba="0.2 0.8 1 1"/>
+      <camera name="cam_robot_2" pos="0.21 0 0.45" xyaxes="0 -1 0 0.2 0 1" fovy="70"/>
+      <body name="robot_2_lid" pos="0 0 0.505">
+        <joint name="lid_robot_2" type="slide" axis="-1 0 0" range="0 0.3" damping="40"/>
+        <geom name="robot_2_lid" type="box" size="0.2 0.16 0.012" mass="0.3" rgba="0.2 0.7 0.55 1"/>
+      </body>
+      <body name="robot_2_wl" pos="0 0.19 0">
+        <joint name="robot_2_wl" class="wheel"/>
+        <geom class="wheel" mass="0.4"/>
+      </body>
+      <body name="robot_2_wr" pos="0 -0.19 0">
+        <joint name="robot_2_wr" class="wheel"/>
+        <geom class="wheel" mass="0.4"/>
+      </body>
+      <geom name="robot_2_caster_f" class="caster" pos="0.17 0 -0.03"/>
+      <geom name="robot_2_caster_b" class="caster" pos="-0.17 0 -0.03"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity name="robot_1_wl" joint="robot_1_wl" kv="8" ctrlrange="-15 15"/>
+    <velocity name="robot_1_wr" joint="robot_1_wr" kv="8" ctrlrange="-15 15"/>
+    <position name="lid_robot_1" joint="lid_robot_1" kp="300" ctrlrange="0 0.3"/>
+    <velocity name="robot_2_wl" joint="robot_2_wl" kv="8" ctrlrange="-15 15"/>
+    <velocity name="robot_2_wr" joint="robot_2_wr" kv="8" ctrlrange="-15 15"/>
+    <position name="lid_robot_2" joint="lid_robot_2" kp="300" ctrlrange="0 0.3"/>
+  </actuator>
+</mujoco>

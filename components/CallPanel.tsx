@@ -1,0 +1,101 @@
+'use client';
+
+// The guest's phone line: mic → transcriber → Muse Spark call agent → TTS.
+import { useRef, useState } from 'react';
+import { Gate } from '@/lib/voice/gate.ts';
+import { openAsr, KEYWORDS, type AsrProvider } from '@/lib/voice/asr.ts';
+import { speak } from '@/lib/voice/tts.ts';
+import { CallSession, type CallLog } from '@/lib/agent/session.ts';
+import type { FleetApi } from '@/lib/agent/tools.ts';
+
+const GREETING = 'Room service, how can I help?';
+const PREFERRED = (process.env.NEXT_PUBLIC_ASR_PROVIDER as AsrProvider | undefined) ?? 'meta';
+
+type Line = { who: 'guest' | 'agent' | 'system'; text: string; detail?: string };
+
+export default function CallPanel({ fleet }: { fleet: FleetApi | null }) {
+  const [live, setLive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [partial, setPartial] = useState('');
+  const [lines, setLines] = useState<Line[]>([]);
+  const [provider, setProvider] = useState<AsrProvider | null>(null);
+  const hangup = useRef<() => void>(() => {});
+  const add = (l: Line) => setLines((ls) => [...ls, l]);
+
+  async function start() {
+    if (!fleet || busy) return;
+    setBusy(true);
+    setLines([]);
+    const gate = new Gate();
+    let asr: { stop(): void } | null = null;
+    let stream: MediaStream | null = null;
+    const stop = () => {
+      asr?.stop();
+      stream?.getTracks().forEach((t) => t.stop());
+      setLive(false);
+      setPartial('');
+    };
+    hangup.current = () => { stop(); add({ who: 'system', text: 'You hung up.' }); };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      const inv = await (await fetch('/api/inventory')).json();
+      if (!inv.items) throw new Error(inv.error ?? 'inventory unavailable');
+      const call = new CallSession(`call_${Date.now().toString(36)}`, fleet, inv.items, {
+        onSay: (t) => speak(t, gate),
+        onEnd: () => { stop(); add({ who: 'system', text: 'Call ended.' }); },
+        onLog: (e: CallLog) => {
+          if (e.kind === 'guest') add({ who: 'guest', text: e.text });
+          else if (e.kind === 'agent') add({ who: 'agent', text: e.text, detail: `${e.ms} ms` });
+          else if (e.kind === 'tool' && e.name !== 'end_call') add({ who: 'system', text: `${e.name} ${JSON.stringify(e.args)}`, detail: JSON.stringify(e.result) });
+          else if (e.kind === 'error') add({ who: 'system', text: `error: ${e.text}` });
+        },
+      });
+      const handlers = {
+        stream, keywords: KEYWORDS, gate,
+        onPartial: setPartial,
+        onFinal: (t: string) => { setPartial(''); void call.onGuest(t); },
+        onError: (m: string) => add({ who: 'system', text: `transcriber: ${m}` }),
+      };
+      let used: AsrProvider = PREFERRED;
+      try {
+        asr = await openAsr({ ...handlers, provider: used });
+      } catch (e) {
+        // Relay down or unreachable: keep the demo alive on the backup.
+        if (used !== 'meta') throw e;
+        used = 'assemblyai';
+        add({ who: 'system', text: 'Muse relay unreachable, using AssemblyAI backup' });
+        asr = await openAsr({ ...handlers, provider: used });
+      }
+      setProvider(used);
+      setLive(true);
+      add({ who: 'agent', text: GREETING });
+      await speak(GREETING, gate);
+    } catch (e) {
+      stop();
+      add({ who: 'system', text: `could not start: ${e instanceof Error ? e.message : e}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel call">
+      <header>
+        <h2>Guest call</h2>
+        {provider && <span className="muted">{provider === 'meta' ? 'Muse Voice Transcribe' : 'AssemblyAI backup'} · Muse Spark</span>}
+      </header>
+      <button className={live ? 'btn danger' : 'btn primary'} disabled={!fleet || busy} onClick={live ? () => hangup.current() : start}>
+        {busy ? 'Connecting…' : live ? 'Hang up' : 'Call room service'}
+      </button>
+      <ol className="transcript">
+        {lines.map((l, i) => (
+          <li key={i} className={l.who}>
+            <span>{l.text}</span>
+            {l.detail && <small>{l.detail}</small>}
+          </li>
+        ))}
+        {partial && <li className="guest partial"><span>{partial}</span></li>}
+      </ol>
+    </section>
+  );
+}
