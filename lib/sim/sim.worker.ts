@@ -51,6 +51,7 @@ function handle(req: Request): Reply {
     case 'cancelTask': return fleet.cancelTask(req.id);
     case 'apply': return fleet.apply(req.decision);
     case 'fault': return fleet.injectBatteryFault(req.robotId);
+    case 'snapshot': return fleet.snapshot();
     case 'reset':
       fleet = new Fleet(Date.now, { demoFault: demo });
       fleet.seedDemo();
@@ -96,7 +97,7 @@ function run(model: { ngeom: number }, data: { geom_xpos: Float64Array; geom_xma
     const events = fleet.drain();
     if (events.length) {
       const snap = fleet.snapshot();
-      post({ type: 'events', events: events.map((event) => ({ event, context: decisionContext(event, snap) })) });
+      post({ type: 'events', events: events.map((event) => ({ event, context: decisionContext(event, snap) })), snapshot: snap });
     }
     if (++n % FRAME_EVERY === 0) {
       const xpos = Float32Array.from(data.geom_xpos.subarray(0, 3 * model.ngeom));

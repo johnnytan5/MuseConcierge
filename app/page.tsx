@@ -5,12 +5,14 @@ import SimView, { type CameraMode } from '@/components/SimView.tsx';
 import CallPanel from '@/components/CallPanel.tsx';
 import { FleetClient } from '@/lib/sim/client.ts';
 import type { FleetSnapshot } from '@/lib/fleet/types.ts';
+import { decide, type BrainEntry } from '@/lib/brain/client.ts';
 
 export default function Console() {
   const [client, setClient] = useState<FleetClient | null>(null);
   const [snap, setSnap] = useState<FleetSnapshot | null>(null);
   const [camera, setCamera] = useState<CameraMode>('overview');
   const [error, setError] = useState('');
+  const [brainLog, setBrainLog] = useState<BrainEntry[]>([]);
 
   useEffect(() => {
     const demo = new URLSearchParams(location.search).get('demo') === '1';
@@ -18,14 +20,10 @@ export default function Console() {
     const unsubscribe = c.subscribe({
       onState: setSnap,
       onError: setError,
-      // Until the brain lands, take the first offered option.
-      onEvents: (events) => {
-        for (const { context } of events) {
-          const o = context?.options.find((x) => x.action === 'assign' || x.action === 'handoff');
-          if (!o || !context) continue;
-          void c.apply(o.action === 'assign'
-            ? { assign: context.taskId, to: o.robot, reason: 'first option' }
-            : { handoff: context.taskId, to: o.to, preempt: o.preempts, reason: 'first option' });
+      onEvents: (events, snapshot) => {
+        for (const ev of events) {
+          void decide(c, ev, snapshot, (entry) =>
+            setBrainLog((log) => [entry, ...log.filter((x) => x.id !== entry.id)]));
         }
       },
     });
@@ -65,6 +63,12 @@ export default function Console() {
           ))}
           <h2>Tasks</h2>
           {snap?.tasks.map((t) => <div key={t.id}>{t.id} · {t.room} · {t.item} · {t.status} · {t.robotId ?? '-'}</div>)}
+        </section>
+        <section className="panel brainlog">
+          <h2>Brain · Muse Wonder</h2>
+          {brainLog.map((b) => (
+            <div key={b.id}>{b.pending ? `Thinking about ${b.taskId}…` : `${b.line} · ${b.source} · ${b.ms} ms`}</div>
+          ))}
         </section>
       </div>
     </main>

@@ -9,7 +9,7 @@ export type FleetListeners = {
   onStatic?(geoms: GeomInfo[]): void;
   onFrame?(xpos: Float32Array, xmat: Float32Array): void;
   onState?(s: FleetSnapshot): void;
-  onEvents?(events: EventWithContext[]): void;
+  onEvents?(events: EventWithContext[], snapshot: FleetSnapshot): void;
   onError?(message: string): void;
 };
 
@@ -30,7 +30,7 @@ export class FleetClient implements FleetApi {
         if (m.type === 'static') l.onStatic?.(m.geoms);
         else if (m.type === 'frame') l.onFrame?.(m.xpos, m.xmat);
         else if (m.type === 'state') l.onState?.(m.snapshot);
-        else if (m.type === 'events') l.onEvents?.(m.events);
+        else if (m.type === 'events') l.onEvents?.(m.events, m.snapshot);
         else if (m.type === 'error') l.onError?.(m.message);
       }
     };
@@ -59,6 +59,7 @@ export class FleetClient implements FleetApi {
   apply(decision: BrainDecision) { return this.request<ApplyResult>({ kind: 'apply', decision }); }
   fault(robotId: RobotId) { return this.request<boolean>({ kind: 'fault', robotId }); }
   reset() { return this.request<boolean>({ kind: 'reset' }); }
+  getSnapshot() { return this.request<FleetSnapshot>({ kind: 'snapshot' }); }
 
   terminate() { this.worker.terminate(); }
 }

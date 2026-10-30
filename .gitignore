@@ -10,3 +10,4 @@ AGENTS.md
 CLAUDE.md
 public/sim/mujoco.wasm
 public/sim/mujoco.js
+MUJOCO_LOG.TXT
