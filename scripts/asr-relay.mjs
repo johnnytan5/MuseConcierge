@@ -23,7 +23,11 @@ const wss = new WebSocketServer({
   verifyClient: ({ origin }) => ORIGINS.includes(origin),
 });
 
-wss.on('connection', (client) => {
+wss.on('connection', (client, req) => {
+  const from = `${req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress} ${req.headers.origin}`;
+  const opened = Date.now();
+  let audioBytes = 0;
+  console.log(`open  ${from}`);
   const upstream = new WebSocket(UPSTREAM);
   const pending = [];
   let handshakeSent = false;
@@ -41,6 +45,7 @@ wss.on('connection', (client) => {
       }));
       handshakeSent = true;
     } else {
+      if (isBinary) audioBytes += data.length;
       upstream.send(data, { binary: isBinary });
     }
   };
@@ -52,8 +57,13 @@ wss.on('connection', (client) => {
   upstream.on('open', () => { for (const [d, b] of pending.splice(0)) toUpstream(d, b); });
   upstream.on('message', (data, isBinary) => client.readyState === WebSocket.OPEN && client.send(data, { binary: isBinary }));
 
+  let logged = false;
   const closeBoth = (code, reason) => {
     clearTimeout(timer);
+    if (!logged) {
+      logged = true;
+      console.log(`close ${from} after ${((Date.now() - opened) / 1000).toFixed(1)}s, ${(audioBytes / 32000).toFixed(1)}s audio, code ${code}${reason ? ` ${reason}` : ''}`);
+    }
     const c = code >= 1000 && code < 5000 && code !== 1005 && code !== 1006 ? code : 1000;
     if (client.readyState === WebSocket.OPEN) client.close(c, reason);
     if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) upstream.close();

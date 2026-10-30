@@ -113,6 +113,7 @@ npm test                                    # 52 unit tests: tools, engine, opti
 node scripts/sim-check.mts                  # the full battery-fault scenario on real MuJoCo physics, headless
 node scripts/call-check.mts                 # a scripted call through /api/agent (dev server running)
 node --env-file=.env scripts/brain-check.mts
+node scripts/relay-check.mjs [relay-url]    # stream a bench clip through the ASR relay, print what Muse heard
 ```
 
 ## Limits and what is not here
