@@ -5,12 +5,17 @@ import { chat, MODELS } from '@/lib/meta/client.ts';
 import { BRAIN_SYSTEM, brainQuestion } from '@/lib/brain/prompt.ts';
 import { parseDecision, fallbackDecision } from '@/lib/brain/decide.ts';
 import type { FleetEvent, FleetSnapshot, Option } from '@/lib/fleet/types.ts';
+import { callIsRecent, LIMITS } from '@/lib/limits.ts';
 
 const TIMEOUT_MS = 15000; // Wonder at minimal effort: 1.7-7 s typical, rare outliers past 12 s
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as { event: FleetEvent; taskId: string; options: Option[]; snapshot: FleetSnapshot };
+  const body = (await req.json()) as { event: FleetEvent; taskId: string; options: Option[]; snapshot: FleetSnapshot; callId?: string };
   const { event, taskId, options, snapshot } = body;
+  // Over the limit the fleet still runs: the fallback rule decides instead of Wonder.
+  if (!(await callIsRecent(body.callId, LIMITS.brainMinutes)) && Array.isArray(options) && options.length) {
+    return Response.json({ decision: fallbackDecision(taskId, options), source: 'fallback', error: 'no recent call', ms: 0 });
+  }
   if (!event?.type || typeof taskId !== 'string' || !Array.isArray(options) || !options.length || options.length > 8 || !snapshot?.robots) {
     return Response.json({ error: 'bad request' }, { status: 400 });
   }

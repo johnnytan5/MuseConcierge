@@ -19,13 +19,14 @@ export const KEYWORDS = [
 
 export async function openAsr(opts: AsrHandlers & {
   provider: AsrProvider;
+  callId: string; // authorises the backup transcriber's token
   stream: MediaStream;
   keywords: string[];
   gate: Gate;
 }): Promise<{ stop(): void }> {
   const conn = opts.provider === 'meta'
     ? await connectMeta(opts.keywords, opts)
-    : await connectAssemblyAI(opts.keywords, opts);
+    : await connectAssemblyAI(opts.keywords, opts, opts.callId);
 
   const ctx = new AudioContext({ sampleRate: 16000 });
   await ctx.audioWorklet.addModule('/voice/mic-worklet.js');

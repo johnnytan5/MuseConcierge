@@ -35,6 +35,7 @@ export async function decide(
   { event, context }: EventWithContext,
   snapshot: FleetSnapshot,
   update: (e: BrainEntry) => void,
+  callId: string | null,
 ): Promise<void> {
   if (!context) return;
   const entry: BrainEntry = { id: nextId++, at: Date.now(), event, taskId: context.taskId, pending: true };
@@ -47,7 +48,7 @@ export async function decide(
     const res = await fetch('/api/brain', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event, taskId: context.taskId, options: context.options, snapshot }),
+      body: JSON.stringify({ event, taskId: context.taskId, options: context.options, snapshot, callId }),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error ?? `brain ${res.status}`);

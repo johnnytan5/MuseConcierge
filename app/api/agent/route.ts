@@ -5,11 +5,13 @@ import { chat, MODELS, type ChatMessage } from '@/lib/meta/client.ts';
 import { TOOL_DEFS } from '@/lib/agent/tools.ts';
 import { systemPrompt } from '@/lib/agent/prompt.ts';
 import { loadInventory, deliverable } from '@/lib/inventory.ts';
+import { callIsRecent, LIMITS } from '@/lib/limits.ts';
 
 const MAX_MESSAGES = 60; // a short room-service call; caps cost per request
 
 export async function POST(req: Request) {
-  const { messages } = (await req.json()) as { messages: ChatMessage[] };
+  const { messages, callId } = (await req.json()) as { messages: ChatMessage[]; callId?: string };
+  if (!(await callIsRecent(callId, LIMITS.callMinutes))) return Response.json({ error: 'call expired' }, { status: 403 });
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES || messages.some((m) => m.role === 'system')) {
     return Response.json({ error: 'bad messages' }, { status: 400 });
   }

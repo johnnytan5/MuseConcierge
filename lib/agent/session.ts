@@ -89,7 +89,7 @@ export class CallSession {
     const res = await fetch(this.agentUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: this.messages }),
+      body: JSON.stringify({ messages: this.messages, callId: this.callId }),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error ?? `agent ${res.status}`);

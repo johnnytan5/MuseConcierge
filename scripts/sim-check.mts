@@ -43,3 +43,10 @@ for (let i = 0; i < 60 * 200; i++) {
 const t = fleet.tasks.find((x) => x.id === t1)!;
 console.log(t.status === 'delivered' && t.robotId === 'robot_2' ? 'OK robot_2 delivered after handoff' : `FAIL ${JSON.stringify(t)}`);
 for (const r of fleet.robots) console.log(r.id, r.phase, Math.round(r.battery) + '%', r.pose.x.toFixed(2), r.pose.y.toFixed(2));
+// Upright check: a robot tipped by a collision has a body z axis far from vertical.
+for (const r of ['robot_1', 'robot_2']) {
+  const b = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY.value, r);
+  const [w, x, y] = (data.xquat as Float64Array).subarray(4 * b, 4 * b + 3);
+  const tilt = Math.acos(Math.min(1, 1 - 2 * (x * x + y * y))) * 180 / Math.PI;
+  console.log(r, 'tilt', tilt.toFixed(1) + '°', 'z', (data.xpos as Float64Array)[3 * b + 2].toFixed(3), w.toFixed(2));
+}

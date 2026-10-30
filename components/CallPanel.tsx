@@ -13,7 +13,7 @@ const PREFERRED = (process.env.NEXT_PUBLIC_ASR_PROVIDER as AsrProvider | undefin
 
 type Line = { who: 'guest' | 'agent' | 'system'; text: string; detail?: string };
 
-export default function CallPanel({ fleet }: { fleet: FleetApi | null }) {
+export default function CallPanel({ fleet, visitorId, onCallStart }: { fleet: FleetApi | null; visitorId: string; onCallStart?: (callId: string) => void }) {
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState('');
@@ -37,10 +37,17 @@ export default function CallPanel({ fleet }: { fleet: FleetApi | null }) {
     };
     hangup.current = () => { stop(); add({ who: 'system', text: 'You hung up.' }); };
     try {
+      const started = await (await fetch('/api/call/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visitorId }),
+      })).json();
+      if (!started.callId) throw new Error(started.error ?? 'could not start the call');
+      onCallStart?.(started.callId);
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       const inv = await (await fetch('/api/inventory')).json();
       if (!inv.items) throw new Error(inv.error ?? 'inventory unavailable');
-      const call = new CallSession(`call_${Date.now().toString(36)}`, fleet, inv.items, {
+      const call = new CallSession(started.callId, fleet, inv.items, {
         onSay: (t) => speak(t, gate),
         onEnd: () => { stop(); add({ who: 'system', text: 'Call ended.' }); },
         onLog: (e: CallLog) => {
@@ -51,7 +58,7 @@ export default function CallPanel({ fleet }: { fleet: FleetApi | null }) {
         },
       });
       const handlers = {
-        stream, keywords: KEYWORDS, gate,
+        stream, keywords: KEYWORDS, gate, callId: started.callId as string,
         onPartial: setPartial,
         onFinal: (t: string) => { setPartial(''); void call.onGuest(t); },
         onError: (m: string) => add({ who: 'system', text: `transcriber: ${m}` }),

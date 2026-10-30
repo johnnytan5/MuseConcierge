@@ -35,6 +35,8 @@ export default function Console() {
   const [notes, setNotes] = useState<NotificationEntry[]>([]);
   const [demo, setDemo] = useState(false);
   const saved = useRef({ id: '', dirty: false, persist: true });
+  const lastCall = useRef<string | null>(null); // brain requests ride on the latest call's limit
+  const [visitor, setVisitor] = useState('');
 
   useEffect(() => {
     let c: FleetClient | null = null;
@@ -43,6 +45,7 @@ export default function Console() {
     const isDemo = new URLSearchParams(location.search).get('demo') === '1';
     setDemo(isDemo);
     const id = (saved.current.id = visitorId());
+    setVisitor(id);
 
     const addNote = (n: NotificationEntry) => setNotes((ns) => [n, ...ns.filter((x) => x.id !== n.id)]);
 
@@ -75,7 +78,7 @@ export default function Console() {
             void decide(c!, ev, snapshot, (entry) => {
               setBrainLog((log) => [entry, ...log.filter((x) => x.id !== entry.id)]);
               if (entry.notify) addNote({ id: `brain-${entry.id}`, at: Date.now(), ...entry.notify });
-            });
+            }, lastCall.current);
           }
         },
       });
@@ -130,7 +133,7 @@ export default function Console() {
         {demo && <span className="badge red" title="Battery fault fires automatically on robot 1's first delivery">demo mode</span>}
       </div>
       <div className="col">
-        <CallPanel fleet={client} />
+        <CallPanel fleet={client} visitorId={visitor} onCallStart={(id) => { lastCall.current = id; }} />
       </div>
       <div className="center">
         <div className="stage">

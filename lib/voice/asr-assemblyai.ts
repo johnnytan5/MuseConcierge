@@ -2,8 +2,8 @@
 // browser connects directly with a short-lived token from /api/asr-token.
 import type { AsrConnection, AsrHandlers } from './asr.ts';
 
-export async function connectAssemblyAI(keywords: string[], h: AsrHandlers): Promise<AsrConnection> {
-  const res = await fetch('/api/asr-token');
+export async function connectAssemblyAI(keywords: string[], h: AsrHandlers, callId: string): Promise<AsrConnection> {
+  const res = await fetch(`/api/asr-token?callId=${encodeURIComponent(callId)}`);
   if (!res.ok) throw new Error(`asr token ${res.status}`);
   const { token } = await res.json();
   const qs = new URLSearchParams({
