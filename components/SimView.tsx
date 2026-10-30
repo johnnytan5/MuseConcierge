@@ -12,6 +12,8 @@ import { NODES } from '@/lib/fleet/nav.ts';
 
 export type CameraMode = 'overview' | RobotId;
 
+const OVERVIEW_DIR = new THREE.Vector3(0, -0.5, 1).normalize(); // from the floor centre toward the overview camera
+
 const GEOM = { plane: 0, sphere: 2, capsule: 3, ellipsoid: 4, cylinder: 5, box: 6 } as const;
 
 function meshFor(g: GeomInfo): THREE.Mesh | null {
@@ -84,10 +86,11 @@ export default function SimView({ client, camera = 'overview' }: { client: Fleet
       s.position.set(x, y > 0 ? 1.95 : -1.95, 1.0);
       scene.add(s);
     }
-    const fixed: [string, string, number, number][] = [['Pickup', '#1f4e79', 2.5, -1.7], ['Dock 1', '#a36100', 0, -0.8], ['Dock 2', '#14705a', 0, 0.8]];
-    for (const [text, color, x, y] of fixed) {
+    // Dock labels sit by the wall so they never cover a docked robot's own tag.
+    const fixed: [string, string, number, number, number][] = [['Pickup', '#1f4e79', 2.5, -1.75, 1.35], ['Dock 1', '#a36100', -0.55, -1.35, 0.5], ['Dock 2', '#14705a', -0.55, 1.35, 0.5]];
+    for (const [text, color, x, y, z] of fixed) {
       const s = label(text, color, 0.4);
-      s.position.set(x, y, text === 'Pickup' ? 1.35 : 0.95);
+      s.position.set(x, y, z);
       scene.add(s);
     }
     const robotTags = { robot_1: label('Robot 1', '#a36100', 0.42), robot_2: label('Robot 2', '#14705a', 0.42) };
@@ -144,8 +147,12 @@ export default function SimView({ client, camera = 'overview' }: { client: Fleet
         goal.copy(p).addScaledVector(fwd, -1.6).add(new THREE.Vector3(0, 0, 1.3));
         look.copy(p).addScaledVector(fwd, 1.2);
       } else {
-        const wide = cam.aspect < 1.4;
-        goal.set(5.6, wide ? -7.5 : -5.6, wide ? 14 : 11);
+        // Back off along a fixed viewing angle just far enough that the whole
+        // floor (13.4 m x 4.2 m) fits the stage at its current aspect.
+        const vHalf = THREE.MathUtils.degToRad(cam.fov / 2);
+        const hHalf = Math.atan(Math.tan(vHalf) * cam.aspect);
+        const d = 1.04 * Math.max(6.7 / Math.tan(hHalf), 3.4 / Math.tan(vHalf));
+        goal.set(5.6, 0.3, 0).addScaledVector(OVERVIEW_DIR, d);
         look.set(5.6, 0.3, 0);
       }
       cam.position.lerp(goal, 0.08);

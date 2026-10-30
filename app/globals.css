@@ -15,12 +15,15 @@ h1, h2 { margin: 0; font-weight: 600; }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .muted { color: var(--muted); font-size: 12px; }
 
-.console { display: grid; grid-template-columns: 320px 1fr 380px; grid-template-rows: auto 1fr; height: 100vh; }
+.console { display: grid; grid-template-columns: 300px 1fr 320px; grid-template-rows: auto 1fr; height: 100vh; }
+.center { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.center .below { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; height: 42%; min-height: 0; border-top: 1px solid var(--line); }
+.center .below .panel { overflow: auto; }
 .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .topbar h1 { font-size: 16px; }
 .topbar .spacer { flex: 1; }
 .col { display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow: auto; min-height: 0; }
-.stage { position: relative; min-height: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.stage { position: relative; flex: 1; min-height: 0; }
 .stage .cams { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; z-index: 1; }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -42,6 +45,58 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .transcript small { color: var(--muted); font-size: 11px; }
 
 @media (max-width: 1100px) {
-  .console { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto auto; height: auto; }
-  .stage { order: -1; grid-column: 1; border: 0; }
+  .console { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+  .center { order: -1; grid-column: 1; border: 0; }
+  .stage { height: 50vh; flex: none; }
+  .center .below { grid-template-columns: 1fr; height: auto; }
 }
+
+/* Robot cards */
+.robot { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+.robot:first-of-type { border-top: 0; }
+.robot-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.robot_1 strong { color: var(--amber); }
+.robot_2 strong { color: var(--teal); }
+.phase { color: var(--muted); }
+.badge { font-size: 11px; padding: 1px 6px; border-radius: 6px; }
+.badge.red { background: var(--red); color: #fff; }
+.battery { position: relative; height: 14px; background: #2a2e36; border-radius: 7px; overflow: hidden; }
+.battery .fill { height: 100%; transition: width 0.5s; }
+.battery .fill.ok { background: var(--teal); }
+.battery .fill.mid { background: var(--amber); }
+.battery .fill.low { background: var(--red); }
+.battery span { position: absolute; right: 6px; top: -1px; font-size: 11px; }
+
+/* Task queue */
+.tasks { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tasks th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; padding: 2px 4px; }
+.tasks td { padding: 5px 4px; border-top: 1px solid var(--line); }
+.tasks tr.housekeeping td { color: var(--muted); }
+.status { font-weight: 600; animation: flash 1.5s ease-out; border-radius: 4px; }
+.status.en_route, .status.assigned { color: var(--blue); }
+.status.reassigned { color: var(--amber); }
+.status.delivered { color: var(--teal); }
+.status.cancelled { color: var(--muted); }
+@keyframes flash { from { background: rgba(240, 168, 48, 0.55); } to { background: transparent; } }
+
+/* Brain log */
+.brainlog, .notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.brainlog li { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 6px; background: #20242b; animation: flash 1.5s ease-out; }
+.brainlog li small { color: var(--muted); font-size: 11px; }
+.brainlog li.pending { color: var(--muted); }
+.brainlog li.fallback { border-left: 3px solid var(--amber); }
+.dots::after { content: '…'; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.2; } }
+
+/* Room notifications */
+.notes li { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; background: #20242b; animation: flash 1.5s ease-out; }
+.notes .room { font-weight: 700; background: #2f3540; padding: 1px 6px; border-radius: 4px; }
+.notes small { color: var(--muted); font-size: 11px; }
+.notes li.delayed span:nth-child(2) { color: var(--amber); }
+.notes li.arrived span:nth-child(2) { color: var(--teal); }
+
+/* Metrics */
+.metrics { display: flex; gap: 18px; }
+.metrics div { display: flex; flex-direction: column; align-items: flex-end; }
+.metrics b { font-size: 16px; }
+.metrics span { color: var(--muted); font-size: 11px; }
