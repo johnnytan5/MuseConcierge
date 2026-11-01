@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import SimView, { type CameraMode } from '@/components/SimView.tsx';
+import SimView, { type CameraMode, type DoorCapture } from '@/components/SimView.tsx';
+import DoorCheckPanel, { type DoorCheckEntry } from '@/components/DoorCheckPanel.tsx';
 import CallPanel from '@/components/CallPanel.tsx';
 import RobotCard from '@/components/RobotCard.tsx';
 import TaskQueue from '@/components/TaskQueue.tsx';
@@ -11,7 +12,8 @@ import MetricsBar from '@/components/MetricsBar.tsx';
 import { FleetClient } from '@/lib/sim/client.ts';
 import { decide, type BrainEntry } from '@/lib/brain/client.ts';
 import { notification } from '@/lib/fleet/notify.ts';
-import type { FleetSnapshot } from '@/lib/fleet/types.ts';
+import { verdict, type DoorCheck } from '@/lib/vision/doorcheck.ts';
+import type { FleetSnapshot, RobotId } from '@/lib/fleet/types.ts';
 
 const SAVE_MS = 2000;
 
@@ -37,6 +39,8 @@ export default function Console() {
   const saved = useRef({ id: '', dirty: false, persist: true });
   const lastCall = useRef<string | null>(null); // brain requests ride on the latest call's limit
   const [visitor, setVisitor] = useState('');
+  const [doorCheck, setDoorCheck] = useState<DoorCheckEntry | null>(null);
+  const capture = useRef<DoorCapture | null>(null);
 
   useEffect(() => {
     let c: FleetClient | null = null;
@@ -48,6 +52,28 @@ export default function Console() {
     setVisitor(id);
 
     const addNote = (n: NotificationEntry) => setNotes((ns) => [n, ...ns.filter((x) => x.id !== n.id)]);
+
+    // On arrival the robot photographs the door; the check never holds up the delivery.
+    const checkDoor = async (taskId: string, room: string, robotId: RobotId) => {
+      const image = capture.current?.(robotId, room);
+      if (!image) return;
+      setDoorCheck({ taskId, room, robotId, image });
+      const update = (patch: Partial<DoorCheckEntry>) => setDoorCheck((d) => (d?.taskId === taskId ? { ...d, ...patch } : d));
+      try {
+        const res = await fetch('/api/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image, room, callId: lastCall.current }),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error ?? `HTTP ${res.status}`);
+        const v = verdict(room, result as DoorCheck);
+        update({ result, verdict: v });
+        if (v === 'confirmed') addNote({ id: `${taskId}-arrived`, at: Date.now(), room, text: 'Arrived · door confirmed' });
+      } catch (e) {
+        update({ error: e instanceof Error ? e.message : 'failed' });
+      }
+    };
 
     (async () => {
       let state: { snapshot: FleetSnapshot | null; brain_log: BrainEntry[]; notifications: NotificationEntry[] } | null = null;
@@ -74,6 +100,7 @@ export default function Console() {
               const task = snapshot.tasks.find((t) => t.id === taskId);
               const n = task && notification(ev.event, null, task);
               if (n) addNote({ id: `${taskId}-arrived`, at: Date.now(), ...n });
+              if (n && task) void checkDoor(taskId, task.room, ev.event.robotId);
             }
             void decide(c!, ev, snapshot, (entry) => {
               setBrainLog((log) => [entry, ...log.filter((x) => x.id !== entry.id)]);
@@ -112,6 +139,7 @@ export default function Console() {
     if (!client) return;
     setBrainLog([]);
     setNotes([]);
+    setDoorCheck(null);
     await client.reset();
   }
 
@@ -144,7 +172,7 @@ export default function Console() {
               </button>
             ))}
           </div>
-          <SimView client={client} camera={camera} />
+          <SimView client={client} camera={camera} captureRef={capture} />
         </div>
         <div className="below">
           <TaskQueue snap={snap} />
@@ -156,6 +184,7 @@ export default function Console() {
           <h2>Fleet</h2>
           {snap?.robots.map((r) => <RobotCard key={r.id} robot={r} />)}
         </section>
+        <DoorCheckPanel entry={doorCheck} />
         <RoomNotifications items={notes} />
       </div>
     </main>

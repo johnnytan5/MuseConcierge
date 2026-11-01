@@ -9,8 +9,12 @@ import type { FleetClient } from '@/lib/sim/client.ts';
 import type { GeomInfo } from '@/lib/sim/protocol.ts';
 import type { RobotId } from '@/lib/fleet/types.ts';
 import { NODES } from '@/lib/fleet/nav.ts';
+import { buildDoorstep, doorCamera, captureJpeg, PHOTO_LAYER } from './doorstep.ts';
 
 export type CameraMode = 'overview' | RobotId;
+
+// Renders robot's door camera at room into a JPEG data URL, or null before the model loads.
+export type DoorCapture = (robot: RobotId, room: string) => string | null;
 
 const OVERVIEW_DIR = new THREE.Vector3(0, -0.5, 1).normalize(); // from the floor centre toward the overview camera
 
@@ -31,6 +35,8 @@ function meshFor(g: GeomInfo): THREE.Mesh | null {
   mesh.matrixAutoUpdate = false;
   mesh.castShadow = g.type !== GEOM.plane;
   mesh.receiveShadow = true;
+  // The door camera's photo layer has its own walls, doors and floor.
+  if (!/^(wall_|door_|floor$)/.test(g.name)) mesh.layers.enable(PHOTO_LAYER);
   return mesh;
 }
 
@@ -53,7 +59,7 @@ function label(text: string, color = '#1d1d1f', scale = 0.55): THREE.Sprite {
   return sprite;
 }
 
-export default function SimView({ client, camera = 'overview' }: { client: FleetClient | null; camera?: CameraMode }) {
+export default function SimView({ client, camera = 'overview', captureRef }: { client: FleetClient | null; camera?: CameraMode; captureRef?: { current: DoorCapture | null } }) {
   const host = useRef<HTMLDivElement>(null);
   const cameraMode = useRef<CameraMode>(camera);
   cameraMode.current = camera;
@@ -68,7 +74,8 @@ export default function SimView({ client, camera = 'overview' }: { client: Fleet
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#1b1d22');
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2));
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 1.2);
+    scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(4, -3, 9);
     sun.castShadow = true;
@@ -76,6 +83,9 @@ export default function SimView({ client, camera = 'overview' }: { client: Fleet
     Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 });
     sun.target.position.set(5.5, 0, 0);
     scene.add(sun, sun.target);
+    hemi.layers.enableAll();
+    sun.layers.enableAll();
+    buildDoorstep(scene);
 
     const cam = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
     cam.up.set(0, 0, 1);
@@ -122,6 +132,13 @@ export default function SimView({ client, camera = 'overview' }: { client: Fleet
       },
     });
 
+    if (captureRef) {
+      captureRef.current = (robot, room) => {
+        const mesh = meshes[bodyIdx[robot]];
+        return mesh ? captureJpeg(renderer, scene, doorCamera(new THREE.Vector3().setFromMatrixPosition(mesh.matrix), room)) : null;
+      };
+    }
+
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
       renderer.setSize(w, h);
@@ -166,12 +183,13 @@ export default function SimView({ client, camera = 'overview' }: { client: Fleet
 
     return () => {
       cancelAnimationFrame(raf);
+      if (captureRef) captureRef.current = null;
       ro.disconnect();
       unsubscribe();
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
-  }, [client]);
+  }, [client, captureRef]);
 
   return <div ref={host} style={{ width: '100%', height: '100%', minHeight: 320 }} />;
 }

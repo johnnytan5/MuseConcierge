@@ -5,8 +5,11 @@ export type ToolCall = { id: string; type: 'function'; function: { name: string;
 
 export type AssistantMessage = { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] };
 
+export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
 export type ChatMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string | ContentPart[] }
   | AssistantMessage
   | { role: 'tool'; tool_call_id: string; content: string };
 
@@ -56,4 +59,24 @@ export async function chat(opts: {
     throw new Error(`meta returned an empty message (finish_reason ${choice.finish_reason})`);
   }
   return choice.message;
+}
+
+// SAM 3.1 on the Responses endpoint: a text prompt plus an image, answered
+// with <|box;...|> markers in the output text (parsed by lib/vision).
+export async function segment(prompt: string, imageDataUrl: string, timeoutMs = 15000): Promise<string> {
+  const res = await fetch(`${BASE_URL}/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.META_API_KEY}` },
+    body: JSON.stringify({
+      model: MODELS.sam,
+      stream: false,
+      metadata: { include_confidence: 'true' },
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }, { type: 'input_image', image_url: imageDataUrl }] }],
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`sam ${res.status}: ${body.slice(0, 200)}`);
+  const j = JSON.parse(body);
+  return j.output_text ?? (j.output ?? []).flatMap((o: { content?: { text?: string }[] }) => o.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
 }

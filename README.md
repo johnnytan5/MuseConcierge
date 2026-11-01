@@ -14,13 +14,15 @@ Built for the **Meta Global AI Developer Hackathon** (indie track, Push the Fron
    - charge first: about 11 minutes;
    - hand off to robot 2 by pausing housekeeping: about 45 seconds.
 5. **The brain hands the order to robot 2.** Robot 1 limps home to charge, and robot 2 drops housekeeping, loads the towels and delivers.
-6. **Housekeeping resumes.** When robot 2 is free again, the brain puts it back on the paused housekeeping task.
+6. **The robot checks the door.** On arrival it photographs the door: SAM 3.1 boxes the door and the room number plate, Muse Spark reads the plate, and the room is told *Arrived · door confirmed*.
+7. **Housekeeping resumes.** When robot 2 is free again, the brain puts it back on the paused housekeeping task.
 
 The console shows all of it live:
 - the call transcript;
 - the task queue (the row flips to *reassigned*);
 - the brain log, in plain language, with Wonder's latency;
-- the room notifications (*On the way*, *Delayed*, *Arrived*);
+- the door check (the robot's photo with SAM's boxes and the number Spark read);
+- the room notifications (*On the way*, *Delayed*, *Arrived · door confirmed*);
 - battery bars;
 - the 3D floor with follow cameras.
 
@@ -31,6 +33,7 @@ The console shows all of it live:
 | Hearing the guest | **Muse Voice Transcribe** (`muse-voice-transcribe-1.0`) | Streaming, endpointing, keyword biasing on `room 801`…`806` and item names |
 | Talking to the guest, calling tools | **Muse Spark** (`muse-spark-1.1`) | `create_task`, `get_task_status`, `cancel_task`, `end_call`. One agent per call |
 | Running the fleet | **Muse Wonder** (`muse-wonder-1.0`) | Called only on events. Picks one engine-computed option and answers in JSON |
+| Checking the door | **SAM 3.1** (`sam-3.1`) + **Muse Spark** | On arrival, SAM boxes the door and the room number plate in the robot's camera frame; Spark reads the number. Advisory: it never holds up a delivery |
 
 These parts are not Meta models:
 - **Speech output:** the browser's own speech synthesis. Muse Voice Transcribe is speech-to-text only.
@@ -109,7 +112,7 @@ npm run dev                   # terminal 2: http://localhost:3000
 ## Checks
 
 ```bash
-npm test                                    # 52 unit tests: tools, engine, options, brain, notifications, metrics
+npm test                                    # 55 unit tests: tools, engine, options, brain, notifications, metrics, door check
 node scripts/sim-check.mts                  # the full battery-fault scenario on real MuJoCo physics, headless
 node scripts/call-check.mts                 # a scripted call through /api/agent (dev server running)
 node --env-file=.env scripts/brain-check.mts
@@ -120,17 +123,18 @@ node scripts/relay-check.mjs [relay-url]    # stream a bench clip through the AS
 
 - **Robots:** two robots on one floor, driven by a waypoint graph with pure pursuit. There is no SLAM and no lift.
 - **Speech output** uses the browser's voices.
-- **SAM 3.1 door check:** tried and dropped. SAM found nothing in the flat-shaded simulator frames, even for "door" or "robot". A real door check needs photographic textures or real camera frames.
+- **Door camera:** SAM 3.1 found nothing in the flat-shaded overview, even for "door". So the robot's door camera renders a second layer of the same floor with textured walls, carpet, wooden doors and brass number plates (`components/doorstep.ts`), and SAM finds the door at about 0.93 and the plate at 0.73–0.80. The robots in that frame are the MuJoCo robots. Real camera frames would replace this layer on hardware.
 - **Spend limits:** the hosted demo allows 3 calls per IP per day.
 
 ## Repository layout
 
 ```
-app/                 console page and API routes (agent, brain, call start, inventory, fleet state, ASR token)
-components/          call panel, 3D view, robot cards, task queue, brain log, notifications, metrics
+app/                 console page and API routes (agent, brain, vision, call start, inventory, fleet state, ASR token)
+components/          call panel, 3D view and door camera, robot cards, task queue, brain log, door check, notifications, metrics
 lib/agent/           call-agent tools, prompt, session
 lib/brain/           brain prompt, decision parsing and fallback, log lines, page-side client
 lib/fleet/           engine, options and ETAs, navigation, notifications, metrics (+ tests)
+lib/vision/          SAM box parsing and the door verdict (+ tests)
 lib/sim/             MuJoCo SimPort, Web Worker, client, message types
 lib/voice/           mic capture, Muse and AssemblyAI adapters, echo gate, speech
 public/sim/floor.xml the hotel floor and both robots (MJCF)

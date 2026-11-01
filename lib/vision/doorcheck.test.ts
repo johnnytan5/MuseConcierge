@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseBoxes, readRoomNumber, verdict, type Box } from './doorcheck.ts';
+
+// Real SAM 3.1 output for a rendered door (scripts' go/no-go test, 2026-11-01).
+const SAM = '<|box;x1=419;y1=137;x2=656;y2=641;w=1024;h=768;c=0.9024390578269958|>';
+
+test('parses SAM boxes, best first, skipping junk', () => {
+  const boxes = parseBoxes(`${'<|box;x1=1;y1=2;x2=3;y2=4;w=10;h=10;c=0.6|>'}${SAM}<|box;x1=oops|>`);
+  assert.equal(boxes.length, 2);
+  assert.deepEqual(boxes[0], { x1: 419, y1: 137, x2: 656, y2: 641, w: 1024, h: 768, c: 0.9024390578269958 });
+  assert.deepEqual(parseBoxes(''), []);
+});
+
+test('reads the room number out of a chatty answer', () => {
+  assert.equal(readRoomNumber('804'), '804');
+  assert.equal(readRoomNumber('The sign says 804.'), '804');
+  assert.equal(readRoomNumber('I cannot see a number'), null);
+  assert.equal(readRoomNumber('8045'), null);
+});
+
+const door = parseBoxes(SAM)[0];
+const weak: Box = { ...door, c: 0.3 };
+
+test('verdict: confirmed needs the door and the right number', () => {
+  assert.equal(verdict('804', { door, sign: null, number: '804', ms: 0 }), 'confirmed');
+  assert.equal(verdict('804', { door, sign: null, number: '806', ms: 0 }), 'wrong_door');
+  assert.equal(verdict('804', { door: null, sign: null, number: '804', ms: 0 }), 'unsure');
+  assert.equal(verdict('804', { door: weak, sign: null, number: '804', ms: 0 }), 'unsure');
+  assert.equal(verdict('804', { door, sign: null, number: null, ms: 0 }), 'unsure');
+});
