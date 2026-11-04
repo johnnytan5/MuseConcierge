@@ -2,7 +2,7 @@
 // brain decisions. Pure logic: physics comes in through SimPort, time through
 // the clock, so tests drive it with a kinematic fake.
 import { route, waypoints, nearestNode, pursue, NODES, SPEED, FLOOR_VERSION, DOCK_YAW, doorFacingYaw, turnTo } from './nav.ts';
-import { optionsFor, dockOf, doorOf, distance, LOAD_S, GUEST_DWELL_S, COLLECT_TIMEOUT_S, HK_DWELL_S, CHARGE_S, DRAIN_PER_M } from './options.ts';
+import { optionsFor, dockOf, doorOf, distance, LOAD_S, GUEST_DWELL_S, COLLECT_TIMEOUT_S, LOAD_WAIT_S, HK_DWELL_S, CHARGE_S, CHARGE_PER_S, DRAIN_PER_M } from './options.ts';
 import { ROBOT_IDS } from './types.ts';
 import type { BrainDecision, FleetEvent, FleetSnapshot, LineItem, Robot, RobotId, SimPort, Task, TaskStatus } from './types.ts';
 import type { FleetApi, TaskView } from '../agent/tools.ts';
@@ -12,6 +12,7 @@ const FAULT_RADIUS = 0.5; // m around fault_point where demo mode fires the faul
 const YIELD_DIST = 0.6; // m: stop if another robot is this close ahead
 const YIELD_CONE = 1.0; // rad either side of the heading that counts as "ahead"
 const PASS_CLEAR = 0.36; // m: side-on distance at which two robots clear each other
+const DOOR_SQUARE = 0.3; // rad/s of turn still wanted, below which the robot counts as facing the room
 const PICKUP_CLEAR = 0.45; // m: a robot this close to the pickup still occupies it
 const MOVING = new Set(['to_pickup', 'to_room', 'returning']);
 
@@ -144,6 +145,14 @@ export class Fleet implements FleetApi {
     return { ok: true };
   }
 
+  // Staff finished loading: the robot sets off.
+  binLoaded(id: RobotId): boolean {
+    const r = this.robot(id);
+    if (r.phase !== 'loading') return false;
+    r.until = this.clock();
+    return true;
+  }
+
   // The guest took their items: the robot closes up and leaves after a moment.
   collect(taskId: string): boolean {
     const t = this.tasks.find((x) => x.id === taskId);
@@ -166,14 +175,16 @@ export class Fleet implements FleetApi {
 
   // ---- Simulation step -----------------------------------------------------
 
-  tick(_dt: number, sim: SimPort): void {
+  tick(dt: number, sim: SimPort): void {
     const now = this.clock();
     for (const r of this.robots) {
       const p = sim.pose(r.id);
       if (MOVING.has(r.phase)) r.battery = Math.max(0, r.battery - Math.hypot(p.x - r.pose.x, p.y - r.pose.y) * DRAIN_PER_M);
       r.pose = p;
+      if (r.phase === 'docked' || r.phase === 'charging') r.battery = Math.min(100, r.battery + CHARGE_PER_S * dt);
       const atStop = r.phase === 'at_room' || r.phase === 'loading';
-      sim.lid(r.id, atStop);
+      // The door opens once the robot has finished turning to face the room.
+      sim.lid(r.id, atStop && Math.abs(turnTo(p.yaw, doorFacingYaw(p))) < DOOR_SQUARE);
 
       if (MOVING.has(r.phase) && this.mustWait(r)) {
         sim.drive(r.id, 0, 0);
@@ -196,7 +207,7 @@ export class Fleet implements FleetApi {
   arrive(r: Robot): void {
     const t = r.taskId ? this.tasks.find((x) => x.id === r.taskId)! : null;
     if (r.phase === 'to_pickup') {
-      this.wait(r, 'loading', LOAD_S);
+      this.wait(r, 'loading', this.collection && t?.kind === 'guest' ? LOAD_WAIT_S : LOAD_S);
     } else if (r.phase === 'to_room' && t) {
       if (t.kind === 'housekeeping') this.wait(r, 'at_room', HK_DWELL_S);
       else if (!this.collection) {

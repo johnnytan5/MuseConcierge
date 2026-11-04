@@ -90,15 +90,30 @@ button { font: inherit; color: inherit; }
 .metrics > div { flex: 1; padding: 12px 16px; background: var(--surface); display: flex; flex-direction: column-reverse; gap: 2px; }
 .metrics b { font-size: 25px; font-weight: 800; line-height: 1.1; }
 .metrics span { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.robot { display: flex; flex-direction: column; gap: 7px; padding: 10px 0; border-top: 1px solid var(--hair); }
-.robot:first-child { border-top: 0; padding-top: 0; }
-.robot-head { display: flex; align-items: center; gap: 10px; }
+.robot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .robot strong { font-weight: 800; }
 .robot_1 strong { color: var(--amber); }
 .robot_2 strong { color: var(--teal); }
 .phase { color: var(--muted); font-size: 13px; }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; }
 .badge.red { background: var(--accent); color: var(--bg); }
+.robot-head .battery { width: 120px; }
+.steps-row { display: flex; gap: 2px; }
+.steps-row span { flex: 1; min-width: 0; padding: 7px 5px; border: 1px solid var(--hair); background: var(--surface); font: 10px var(--mono); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.steps-row .done { background: #d7d3d3; color: var(--ink); }
+.steps-row .now { background: var(--accent); color: #fff; font-weight: 700; }
+.robot-task { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-top: 2px solid var(--line); padding-top: 12px; }
+.robot-task small { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.robot-task b { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.robot-task .mono { margin-left: auto; }
+.robot-task.none { font-size: 18px; font-weight: 800; color: var(--muted); }
+.action-box { display: flex; flex-direction: column; gap: 8px; }
+.robot-actions { flex: none; }
+.robot-actions > div { display: flex; flex-direction: column; gap: 6px; }
+.checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.checks figure { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.checks figcaption { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.checks small { font-size: 11px; line-height: 1.35; }
 .battery { position: relative; height: 16px; background: var(--surface); overflow: hidden; }
 .battery .fill { height: 100%; transition: width 0.3s; }
 .battery .fill.ok { background: var(--teal); }
@@ -146,7 +161,7 @@ button { font: inherit; color: inherit; }
 .doorshot img { width: 100%; display: block; }
 .samBox { position: absolute; border: 2px solid var(--accent); }
 .samBox.sign { border-color: #1a73d9; }
-.samBox span { position: absolute; left: -2px; bottom: 100%; background: var(--accent); color: #fff; font: 600 11px/1.4 Archivo, sans-serif; padding: 0 4px; white-space: nowrap; }
+.samBox span { position: absolute; left: -2px; top: -2px; background: var(--accent); color: #fff; font: 600 9px/1.4 Archivo, sans-serif; padding: 0 3px; white-space: nowrap; }
 .samBox.sign span { background: #1a73d9; }
 .doorfacts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .verdict { font-weight: 800; }
@@ -165,22 +180,48 @@ button { font: inherit; color: inherit; }
 .callrow:hover { background: color-mix(in srgb, #201e1d 5%, transparent); }
 .callrow b, .escalation > b { font-size: 19px; font-weight: 800; min-width: 48px; }
 .said-first { flex: 1 1 200px; font-size: 13.5px; }
-.calldetail > header { justify-content: flex-start; align-items: center; }
-.calldetail h3 { font-size: 21px; }
-.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.timeline > li { display: flex; flex-direction: column; gap: 2px; padding: 7px 11px; overflow-wrap: anywhere; }
-.timeline small { font-size: 11px; opacity: 0.7; }
-.timeline .said.guest { background: var(--ink); color: var(--bg); align-self: flex-end; max-width: 85%; }
-.timeline .said.agent { background: var(--surface); align-self: flex-start; max-width: 85%; }
-.timeline .action { border-left: 3px solid var(--accent); padding-left: 10px; font-size: 13px; }
-.timeline summary { font-size: 11px; cursor: pointer; color: var(--muted); margin-top: 2px; }
-.timeline pre { margin: 4px 0 0; padding: 6px 8px; background: var(--surface); font: 11px/1.4 var(--mono); white-space: pre-wrap; }
+.open-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border: 1px solid var(--line); }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(45, 43, 43, 0.5); }
+.dialog { width: min(1080px, 100%); max-height: 88vh; display: flex; flex-direction: column; background: var(--bg); box-shadow: 0 12px 32px rgba(45, 43, 43, 0.3); }
+.dialog-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 14px 20px; border-bottom: 2px solid var(--line); }
+.dialog-title { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; }
+.dialog-room { display: flex; align-items: baseline; gap: 8px; }
+.dialog-room small { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.dialog-room b { font-size: 28px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.dialog-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.flow-panel { border: 2px solid var(--line); flex: none; }
+.flow-panel > h6 { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface); border-bottom: 2px solid var(--line); font-size: 12px; letter-spacing: 0.1em; }
+.flow-panel .aside { margin-left: auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; padding: 16px; }
+.flow-col { flex: 1; min-width: 170px; display: flex; flex-direction: column; gap: 6px; }
+.flow-col > small { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.flow-arrow { display: flex; align-items: center; padding: 0 4px; font: 12px var(--mono); color: var(--muted); }
+.node { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px dashed var(--line); font: 11px var(--mono); color: var(--muted); }
+.node.lit { background: var(--ink); border: 1px solid var(--ink); color: var(--bg); font-weight: 700; }
+.node.alert { box-shadow: inset 0 4px 0 var(--accent); }
+.node .times { margin-left: auto; opacity: 0.7; }
+.callsteps { margin: 16px; display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 11px 14px; background: var(--bg); overflow-wrap: anywhere; }
+.step.action { align-items: flex-start; }
+.step .when { width: 84px; flex: none; }
+.step .who { width: 104px; flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+.step .who.chip { width: auto; flex: none; margin-right: 56px; padding: 2px 6px; border: 1px solid var(--ink); font: 10px var(--mono); letter-spacing: 0; }
+.step .who.chip.alert { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step .words { flex: 1; min-width: 180px; font-size: 14.5px; }
+.step .words.guest { font-weight: 600; }
+.step .took { padding: 1px 5px; border: 1px solid var(--line); font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
+.step .what { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 3px; }
+.step .what strong { font-size: 13px; }
+.step .arg { display: flex; gap: 8px; }
+.step .arg > span:first-child { min-width: 64px; color: var(--muted); }
+.step .outcome { flex: 1; min-width: 180px; font-size: 12.5px; }
 .escalation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 14px; border-bottom: 1px solid var(--hair); border-left: 8px solid var(--accent); }
 .escalation.resolved { border-left-color: var(--hair); }
 .escalation > div { flex: 1 1 220px; display: flex; flex-direction: column; gap: 3px; }
 .ledger { margin-bottom: 20px; }
 .tab-page { height: auto; }
-.tab-page:has(.call) { height: 100%; }
+.tab-page:has(.call) { min-height: 100%; }
+.transcript-panel { max-height: 420px; }
 
 /* The sim */
 .stage { position: relative; min-width: 0; min-height: 0; background: #b4b4b4; overflow: hidden; }
@@ -195,8 +236,6 @@ button.chip.dark.on { background: var(--accent); }
 .close:hover { opacity: 1; }
 .stage .tip { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 86%; z-index: 4; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--ink); color: var(--bg); font-size: 14px; font-weight: 600; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); }
 .stage .povtag { position: absolute; bottom: 12px; left: 12px; z-index: 2; padding: 4px 9px; background: rgba(32, 30, 29, 0.86); color: #f3f2f2; font: 12px var(--mono); }
-.stage .result { position: absolute; right: 12px; bottom: 12px; z-index: 2; width: min(44%, 340px); padding: 10px; background: var(--bg); border: 2px solid var(--ink); display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
-.stage .result header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; }
 .stage .plan { position: absolute; left: 12px; top: 46px; z-index: 2; width: min(66%, 480px); max-height: calc(100% - 60px); overflow: auto; padding: 12px 14px; background: var(--bg); border: 2px solid var(--accent); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
 .stage .plan header { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--accent); font-weight: 800; margin-bottom: 4px; }
 .stage .plan small { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }

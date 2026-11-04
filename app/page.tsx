@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SimView, { type CameraMode, type SimCapture } from '@/components/SimView.tsx';
-import DoorCheckPanel, { DoorPhoto, CabinPhoto, cabinLine } from '@/components/DoorCheckPanel.tsx';
-import CollectPanel from '@/components/CollectPanel.tsx';
+import RobotActions from '@/components/RobotActions.tsx';
 import { useDoorFlow, kindsOf } from '@/components/useDoorFlow.ts';
 import CallPanel from '@/components/CallPanel.tsx';
 import RobotCard from '@/components/RobotCard.tsx';
@@ -20,11 +19,11 @@ import { FleetClient } from '@/lib/sim/client.ts';
 import { decide, type BrainEntry } from '@/lib/brain/client.ts';
 import { notification } from '@/lib/fleet/notify.ts';
 import { FLOOR_VERSION } from '@/lib/fleet/nav.ts';
-import type { FleetSnapshot } from '@/lib/fleet/types.ts';
+import type { FleetSnapshot, Robot } from '@/lib/fleet/types.ts';
 
 const SAVE_MS = 2000;
 
-type Tab = 'live' | 'fleet' | 'deliveries' | 'calls' | 'escalations' | 'inventory' | 'brain' | 'cameras' | 'rooms';
+type Tab = 'live' | 'fleet' | 'deliveries' | 'calls' | 'escalations' | 'inventory' | 'brain' | 'rooms';
 
 // One saved run per browser; see app/api/fleet-state.
 function visitorId(): string {
@@ -162,6 +161,11 @@ export default function Console() {
     await client.reset();
   }
 
+  function binLoaded(r: Robot) {
+    void client?.binLoaded(r.id);
+    void logCall(lastCall.current, { tool: { name: 'bin_loaded', args: { robot: r.id, task: r.taskId }, result: { sent: true }, summary: 'Staff loaded the cabin; robot on its way' } });
+  }
+
   const r1 = snap?.robots.find((r) => r.id === 'robot_1');
   const canFault = !!r1?.taskId && !r1.fault;
   const moving = snap?.robots.filter((r) => ['to_pickup', 'to_room', 'returning'].includes(r.phase)).length ?? 0;
@@ -173,7 +177,6 @@ export default function Console() {
     { id: 'escalations', label: 'Escalations', count: String(records?.escalations.filter((e) => e.status === 'open').length ?? 0) },
     { id: 'inventory', label: 'Inventory', count: String(records?.items.length ?? 0) },
     { id: 'brain', label: 'Brain', count: String(brainLog.length) },
-    { id: 'cameras', label: 'Cameras', count: String(door.flow ? [door.flow.door, door.flow.before, door.flow.after].filter(Boolean).length : 0) },
     { id: 'rooms', label: 'Room notices', count: String(notes.length) },
   ];
   const show = (t: Tab) => (tab === t ? 'tab-page' : 'tab-page hidden');
@@ -205,20 +208,19 @@ export default function Console() {
           <div className="content">
             <div className={show('live')}>
               <CallPanel fleet={client} visitorId={visitor} onCallStart={(id) => { lastCall.current = id; }}>
-                <CollectPanel flow={door.flow} onCollect={door.collect} />
+                <RobotActions snap={snap} flow={door.flow} onLoaded={binLoaded} onCollect={door.collect} />
               </CallPanel>
             </div>
             <div className={show('fleet')}>
               <h2 className="tab-title">Fleet</h2>
               <MetricsBar snap={snap} />
-              <section className="panel">{snap?.robots.map((r) => <RobotCard key={r.id} robot={r} now={snap.now} />)}</section>
+              {snap?.robots.map((r) => <RobotCard key={r.id} robot={r} task={snap.tasks.find((t) => t.id === r.taskId)} now={snap.now} flow={door.flow} onLoaded={binLoaded} onCollect={door.collect} />)}
             </div>
             <div className={show('deliveries')}><h2 className="tab-title">Deliveries</h2><TaskQueue snap={snap} /></div>
             <div className={show('calls')}><h2 className="tab-title">Call log</h2><CallLogPanel records={records} /></div>
             <div className={show('escalations')}><h2 className="tab-title">Escalations</h2><EscalationsPanel records={records} callId={lastCall.current} onChange={refreshRecords} /></div>
             <div className={show('inventory')}><h2 className="tab-title">Inventory</h2><InventoryPanel records={records} /></div>
             <div className={show('brain')}><h2 className="tab-title">Brain</h2><BrainLog entries={brainLog} /></div>
-            <div className={show('cameras')}><h2 className="tab-title">Cameras</h2><DoorCheckPanel flow={door.flow} /></div>
             <div className={show('rooms')}><h2 className="tab-title">Room notices</h2><RoomNotifications items={notes} /></div>
           </div>
         </div>
@@ -234,7 +236,7 @@ export default function Console() {
         </div>
         <SimView client={client} camera={camera} captureRef={capture} />
         {door.flash > 0 && <div key={door.flash} className="flash" />}
-        {typeof camera === 'object' && <span className="povtag">{camera.robot === 'robot_1' ? 'Robot 1' : 'Robot 2'} {camera.pov === 'door' ? 'door camera' : 'cabin camera'}</span>}
+        {typeof camera === 'object' && <span className="povtag">{camera.pov === 'guest' ? `Guest’s view, room ${camera.room}` : `${camera.robot === 'robot_1' ? 'Robot 1' : 'Robot 2'} cabin camera`}</span>}
         {door.tip && (
           <div className="tip" key={door.tip.id} role="status">
             <span>{door.tip.text}</span>
@@ -248,16 +250,6 @@ export default function Console() {
               <button className="close" aria-label="Dismiss" onClick={() => setPlan(null)}>×</button>
             </header>
             <BrainCard b={plan} />
-          </div>
-        )}
-        {door.resultOpen && door.flow && (door.flow.after ?? door.flow.before ?? door.flow.door) && (
-          <div className="result">
-            <header>
-              <span>{door.flow.after ? 'SAM 3.1: cabin after collection' : door.flow.before ? 'SAM 3.1: cabin on arrival' : 'SAM 3.1: door check'}</span>
-              <button className="close" aria-label="Dismiss" onClick={door.closeResult}>×</button>
-            </header>
-            {door.flow.after ? <CabinPhoto shot={door.flow.after} /> : door.flow.before ? <CabinPhoto shot={door.flow.before} /> : <DoorPhoto shot={door.flow.door!} />}
-            <small className="muted">{door.flow.after ? cabinLine(door.flow.after.result) : door.flow.before ? cabinLine(door.flow.before.result) : door.flow.door?.result ? `Plate reads ${door.flow.door.result.number ?? '?'}` : 'Checking…'}</small>
           </div>
         )}
       </div>

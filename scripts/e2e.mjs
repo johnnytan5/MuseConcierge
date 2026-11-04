@@ -77,6 +77,10 @@ try {
   await see('.transcript', /Call ended/, 'call ended by the agent', 30000);
 
   await see('.brainlog', /New order t1.*Muse Wonder/, 'Muse Wonder assigned the order');
+  const loaded = page.getByRole('button', { name: 'Bin loaded — send it' });
+  await loaded.waitFor({ timeout: 45000 });
+  await loaded.click();
+  pass('robot 1 loaded at the desk with Bin loaded');
   await see('.stage .plan', /Hand off to robot 2.*Muse Wonder/, 'battery fault: plan card shows the options and Wonder\'s pick', 90000);
   const plan = await text('.stage .plan');
   console.log(`\n--- plan ---\n${plan}\n------------\n`);
@@ -84,22 +88,36 @@ try {
   if (!(await page.locator('.stage .plan .chosen').innerText()).includes('Hand off')) throw new Error('chosen option is not the handoff');
   await shot('1-brain-plan');
   await page.locator('.stage .plan .close').click();
+  await loaded.waitFor({ timeout: 45000 });
+  await shot('1b-bin-loaded');
+  await loaded.click();
+  pass('robot 2 loaded at the desk with Bin loaded');
 
-  await see('.stage .povtag', /Robot 2 door camera/, 'stage switches to the door camera on arrival', 120000);
-  await see('.stage .tip', /Picture taken.*SAM 3\.1/, 'door photo: flash and tooltip');
-  await see('.panel', /Right door/, 'door check: SAM boxes, Spark read the plate', 30000);
-  await shot('2-door-camera');
+  await see('.stage .povtag', /Guest.s view, room 804/, 'stage switches to the guest\'s view on arrival', 120000);
+  await shot('2a-guest-door-closed');
+  await page.waitForTimeout(2000);
+  await shot('2b-guest-door-opening');
+  await page.waitForTimeout(1500);
+  await shot('2c-guest-door-open');
 
-  await see('.stage .povtag', /Robot 2 cabin camera/, 'stage switches to the cabin camera');
-  await see('.stage .result', /towel \d\.\d+.*food bag \d\.\d+|food bag \d\.\d+.*towel \d\.\d+/, 'SAM sees both items in the cabin', 30000);
+  await see('.stage .povtag', /Robot 2 cabin camera/, 'then to the cabin camera');
+  await see('.stage .tip', /Picture taken.*SAM 3\.1/, 'cabin photo: flash and tooltip');
+  await see('.checks', /Right door/, 'room number check: SAM boxes, Spark read the plate', 30000);
+  await see('.checks', /towel \d\.\d+.*food bag \d\.\d+|food bag \d\.\d+.*towel \d\.\d+/, 'SAM sees both items in the cabin', 30000);
   await shot('3-cabin-before');
-  if ((await page.locator('.stage .result .samBox').count()) !== 2) throw new Error('expected one SAM box per item');
+  if ((await page.locator('.robot-actions .checks figure:nth-child(2) .samBox').count()) !== 2) throw new Error('expected one SAM box per item');
+  if (await page.getByRole('button', { name: /^Cameras/ }).count()) throw new Error('there should be no Cameras tab');
 
   await page.locator('.stage .tip .close').click();
   if (await page.locator('.stage .tip').count()) throw new Error('tooltip did not dismiss');
   pass('tooltip dismisses');
 
   const button = page.getByRole('button', { name: 'Mimic collection' });
+  // It must wait for the person at the left panel, however long they take.
+  await page.waitForTimeout(8000);
+  if (!/at door/.test(await text('.tasks:not(.stock)'))) throw new Error('task should still wait at the door');
+  if (!/cabin camera/.test(await text('.stage .povtag'))) throw new Error('stage should stay on the cabin camera while waiting');
+  pass('robot waits on the cabin camera for the action on the left');
   if (await button.isDisabled()) throw new Error('Mimic collection is disabled at the door');
   const box = await button.boundingBox();
   if (!box || box.y + box.height > page.viewportSize().height) throw new Error('Mimic collection is off screen');
@@ -107,18 +125,25 @@ try {
   await button.click();
   await page.waitForTimeout(700);
   await shot('4-collecting');
-  await see('.stage .result', /Cabin empty/, 'SAM confirms the cabin is empty', 45000);
+  await see('.checks', /Cabin empty/, 'SAM confirms the cabin is empty', 45000);
   await shot('5-cabin-after');
   await see('.tasks', /collected/, 'task completes only after the empty cabin');
   await see('.notes', /Collected/, 'room notified');
   await see('.panel', /Robot 2\s*Returning/, 'robot 2 closes up and leaves', 20000);
+  // Nothing may still offer an action for a delivery that is over.
+  if (await page.getByRole('button', { name: /Mimic collection|Check the cabin again/ }).count()) throw new Error('a finished delivery still offers Mimic collection');
+  await see('.robot-actions', /Last delivery, room 804: collected/, 'finished delivery shows as the last delivery');
   await see('.brainlog', /hk1 resumed/, 'brain resumes housekeeping', 90000);
 
   // The call's complete record, from the shared database.
   await page.getByRole('button', { name: /^Call log/ }).click();
+  await see('.callrow', /towels/, 'call appears in the list of past calls', 15000);
   await page.locator('.callrow', { hasText: /towels/ }).first().click();
-  await see('.timeline', /Guest.*Agent.*create_task.*brain_decision.*door_check.*cabin_check.*collection/, 'call log shows the conversation, tools and fleet actions in order', 15000);
+  await see('.flow', /Who.*Assistant.*Fleet brain.*Delivery robot.*What it did.*Order handling.*Fleet planning.*Hand-overs.*Delivery checks.*Result.*Order placed.*Handed to another robot.*Collected by the guest/, 'call opens with the flow graph', 15000);
+  await see('.callsteps', /Room service.*towels.*Placed an order.*Brain decision.*Bin loaded.*Room number check.*Cabin check.*Guest collected/, 'then the conversation and actions in order', 15000);
   await shot('7-call-log');
+  await page.getByRole('button', { name: 'Close' }).click();
+  await shot('7b-call-list');
   await page.getByRole('button', { name: /^Inventory/ }).click();
   await see('.ledger', /towel.*−2.*create_task/, 'stock ledger records the two towels', 15000);
   await shot('8-inventory');
@@ -135,7 +160,12 @@ try {
   await page.getByRole('button', { name: /^Fleet/ }).click();
   await see('.robot_2', /On housekeeping, back in/, 'robot 2 parks at 1205 with a visible countdown', 45000);
   await shot('10-housekeeping');
-  await see('.robot_2', /Docked/, 'housekeeping ends and robot 2 returns to its dock', 170000);
+  await see('.robot_2', /Docked, charging/, 'housekeeping ends and robot 2 returns to its dock', 170000);
+  const pctOf = async () => Number((await text('.robot_2 .battery')).replace('%', ''));
+  const before = await pctOf();
+  await page.waitForTimeout(16000);
+  if (!(await pctOf() > before)) throw new Error('a docked robot should be charging');
+  pass('docked robot\'s battery is rising');
   await shot('11-home');
   await shot('6-done');
   if (errors.length) throw new Error(`page errors: ${errors.join('; ')}`);

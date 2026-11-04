@@ -208,3 +208,56 @@ test('housekeeping finishes: the robot comes home from 1205 and is free again', 
   assert.equal(robot(fleet, 'robot_2').taskId, null);
   assert.ok(events.some((e) => e.type === 'robot_idle' && e.robotId === 'robot_2'));
 });
+
+test('collection mode: a guest order waits at the desk for Bin loaded, then for collection', () => {
+  const clock = { now: 1_000_000 };
+  const fleet = new Fleet(() => clock.now, { collection: true });
+  const sim = new FakeSim();
+  for (const r of fleet.robots) sim.teleport(r.id, r.pose);
+  const run = (seconds: number, until: () => boolean) => {
+    for (let t = 0; t < seconds && !until(); t += 0.05) {
+      sim.step(0.05);
+      clock.now += 50;
+      fleet.tick(0.05, sim);
+    }
+  };
+  const { task_id } = fleet.createTask({ item: 'towel', qty: 1, room: '804', callId: 'c' });
+  fleet.apply({ assign: task_id, to: 'robot_1', reason: '' });
+  const r = robot(fleet, 'robot_1');
+  run(30, () => r.phase === 'loading');
+  assert.equal(r.phase, 'loading');
+  run(10, () => r.phase !== 'loading');
+  assert.equal(r.phase, 'loading', 'waits for staff');
+  assert.equal(fleet.binLoaded('robot_1'), true);
+  run(60, () => task(fleet, task_id).status === 'at_door');
+  assert.equal(task(fleet, task_id).status, 'at_door');
+  assert.equal(fleet.collect(task_id), true);
+  assert.equal(task(fleet, task_id).status, 'delivered');
+  assert.equal(fleet.binLoaded('robot_1'), false);
+});
+
+test('collection mode: nobody presses Bin loaded, the robot still leaves', () => {
+  const clock = { now: 1_000_000 };
+  const fleet = new Fleet(() => clock.now, { collection: true });
+  const sim = new FakeSim();
+  for (const r of fleet.robots) sim.teleport(r.id, r.pose);
+  const { task_id } = fleet.createTask({ item: 'towel', qty: 1, room: '804', callId: 'c' });
+  fleet.apply({ assign: task_id, to: 'robot_1', reason: '' });
+  for (let t = 0; t < 120 && task(fleet, task_id).status !== 'en_route'; t += 0.05) {
+    sim.step(0.05);
+    clock.now += 50;
+    fleet.tick(0.05, sim);
+  }
+  assert.equal(task(fleet, task_id).status, 'en_route');
+});
+
+test('a robot on its dock charges, and never past full', () => {
+  const { fleet, run } = setup();
+  const r = robot(fleet, 'robot_1');
+  const start = r.battery;
+  run(100);
+  assert.ok(Math.abs(r.battery - (start + 15)) < 0.5, `battery ${r.battery}`);
+  r.battery = 99.9;
+  run(10);
+  assert.equal(r.battery, 100);
+});

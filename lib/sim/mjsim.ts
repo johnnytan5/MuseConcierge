@@ -15,6 +15,7 @@ const BASE_Z = 0.065; // free-joint height when resting on the floor
 // A tall robot rocks if its wheels jump to speed, so speed changes are ramped.
 const MAX_ACCEL = 0.5; // m/s^2
 const MAX_TURN_ACCEL = 2.5; // rad/s^2
+const DOOR_TRAVEL_S = 2; // the door slides, it doesn't snap
 
 // The subset of the @mujoco/mujoco module this file uses.
 type Mujoco = {
@@ -35,6 +36,8 @@ export class MjSim implements SimPort {
   ids: Record<RobotId, Ids>;
   wanted: Record<string, { v: number; w: number }> = {};
   speed: Record<string, { v: number; w: number }> = {};
+  door: Record<string, number> = {}; // 0 closed, 1 open
+  doorWanted: Record<string, number> = {};
 
   constructor(mj: Mujoco, model: Model, data: Data) {
     this.mj = mj;
@@ -62,6 +65,8 @@ export class MjSim implements SimPort {
     for (const r of ROBOT_IDS) {
       this.wanted[r] = { v: 0, w: 0 };
       this.speed[r] = { v: 0, w: 0 };
+      this.door[r] = 0;
+      this.doorWanted[r] = 0;
     }
   }
 
@@ -85,12 +90,14 @@ export class MjSim implements SimPort {
       now.w = toward(now.w, this.wanted[r].w, MAX_TURN_ACCEL * dt);
       this.data.ctrl[i.wl] = ((now.v - (now.w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
       this.data.ctrl[i.wr] = ((now.v + (now.w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
+      this.door[r] = toward(this.door[r], this.doorWanted[r], dt / DOOR_TRAVEL_S);
+      this.data.ctrl[i.doorTop] = this.door[r] * DOOR_TOP_OPEN;
+      this.data.ctrl[i.doorBottom] = this.door[r] * DOOR_BOTTOM_OPEN;
     }
   }
 
   lid(r: RobotId, open: boolean): void {
-    this.data.ctrl[this.ids[r].doorTop] = open ? DOOR_TOP_OPEN : 0;
-    this.data.ctrl[this.ids[r].doorBottom] = open ? DOOR_BOTTOM_OPEN : 0;
+    this.doorWanted[r] = open ? 1 : 0;
   }
 
   teleport(r: RobotId, p: Pose): void {

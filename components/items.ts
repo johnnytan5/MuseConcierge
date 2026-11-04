@@ -284,6 +284,7 @@ export function buildCabin(chassis: THREE.Object3D, aspect: number, layer: numbe
   frame.add(light);
   const camera = new THREE.PerspectiveCamera(78, aspect, 0.01, 5);
   camera.layers.set(layer);
+  camera.layers.enable(layer + 1); // the room's closed door, seen through the cabin opening
   camera.up.set(0, -1, 0);
   camera.position.set(0, 0.1, CABIN_HEIGHT - 0.012);
   camera.lookAt(0, -0.015, 0); // before parenting, so this is in the cabin's own frame

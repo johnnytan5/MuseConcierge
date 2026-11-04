@@ -4,10 +4,12 @@ import { route, waypoints, nearestNode, pathLength, SPEED } from './nav.ts';
 import type { FleetEvent, FleetSnapshot, Option, Point, RobotId, Task } from './types.ts';
 
 export const LOAD_S = 4; // staff load the cabin at the pickup station
+export const LOAD_WAIT_S = 45; // a guest order waits for "Bin loaded", then leaves regardless
 export const GUEST_DWELL_S = 6; // cabin door stays open after the guest has their items
 export const COLLECT_TIMEOUT_S = 120; // robot gives up and goes home if nobody collects
 export const HK_DWELL_S = 120; // housekeeping drop: robot waits while the room is serviced
 export const CHARGE_S = 600;
+export const CHARGE_PER_S = 0.15; // % a second on a dock: empty to full in about CHARGE_S
 export const DRAIN_PER_M = 0.4; // battery % per metre driven
 export const RESERVE = 10; // % a robot must still have when it gets home
 

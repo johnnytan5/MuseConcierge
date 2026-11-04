@@ -58,6 +58,7 @@ export class FleetClient implements FleetApi {
   cancelTask(id: string) { return this.request<boolean>({ kind: 'cancelTask', id }); }
   apply(decision: BrainDecision) { return this.request<ApplyResult>({ kind: 'apply', decision }); }
   fault(robotId: RobotId) { return this.request<boolean>({ kind: 'fault', robotId }); }
+  binLoaded(robotId: RobotId) { return this.request<boolean>({ kind: 'binLoaded', robotId }); }
   collect(taskId: string) { return this.request<boolean>({ kind: 'collect', taskId }); }
   reset() { return this.request<boolean>({ kind: 'reset' }); }
   getSnapshot() { return this.request<FleetSnapshot>({ kind: 'snapshot' }); }

@@ -1,8 +1,8 @@
 'use client';
 
-// What happens at a guest's door, driven from the fleet's state. The robot
-// photographs the door and the cabin (SAM 3.1 and Muse Spark look at each
-// photo), then waits. "Mimic collection" lifts the items out, photographs the
+// What happens at a guest's door, driven from the fleet's state. The stage
+// shows the guest's view while the door opens, then the cabin camera; SAM 3.1
+// and Muse Spark check the room number and the cabin; then the robot waits. "Mimic collection" lifts the items out, photographs the
 // cabin again, and only an empty cabin completes the delivery.
 import { useCallback, useRef, useState } from 'react';
 import type { CameraMode, SimCapture } from './SimView.tsx';
@@ -25,9 +25,8 @@ export type DoorFlow = {
 
 export type Tip = { id: number; text: string };
 
-const SETTLE_MS = 2500; // the robot turns to the room and its door opens
+const GUEST_VIEW_MS = 5500; // long enough to see the robot turn and its door slide open
 const CAMERA_MS = 900; // a beat on the new view before the shutter
-const AFTER_DOOR_MS = 2500;
 const STAGE_BACK_MS = 6000; // the result stays on screen, then back to the floor
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -44,7 +43,6 @@ export function useDoorFlow(deps: {
   const [flow, setFlow] = useState<DoorFlow | null>(null);
   const [tip, setTip] = useState<Tip | null>(null);
   const [flash, setFlash] = useState(0);
-  const [resultOpen, setResultOpen] = useState(false);
   const started = useRef(new Set<string>());
   const current = useRef<DoorFlow | null>(null);
 
@@ -74,15 +72,14 @@ export function useDoorFlow(deps: {
     current.current = null;
     update({ taskId: t.id, room: t.room, robotId, kinds, step: 'door_photo' });
     const stale = () => current.current?.taskId !== t.id;
-    setCamera({ pov: 'door', robot: robotId, room: t.room });
-    await sleep(SETTLE_MS);
+    // The guest's view: the robot turns to the room and its door slides open.
+    setCamera({ pov: 'guest', robot: robotId, room: t.room });
+    await sleep(GUEST_VIEW_MS);
     if (stale()) return;
 
     const doorImage = capture.current?.door(robotId, t.room);
     if (doorImage) {
-      shutter(`Picture taken. Sent to SAM 3.1 and Muse Spark to find door ${t.room}.`);
       update({ door: { image: doorImage } });
-      setResultOpen(true);
       post<DoorCheck>({ image: doorImage, room: t.room }).then((result) => {
         if (stale()) return;
         const v = verdict(t.room, result);
@@ -90,8 +87,6 @@ export function useDoorFlow(deps: {
         void logCall(callId.current, { tool: { name: 'door_check', args: { room: t.room, robot: robotId, models: ['sam-3.1', 'muse-spark'] }, result, summary: `Plate reads ${result.number ?? '?'}: ${v.replace('_', ' ')}` } });
         if (v === 'confirmed') addNote({ id: `${t.id}-door`, at: Date.now(), room: t.room, text: 'Robot at your door' });
       }).catch((e) => { if (!stale()) update({ error: e.message }); });
-      await sleep(AFTER_DOOR_MS);
-      if (stale()) return;
     }
 
     update({ step: 'cabin_photo' });
@@ -102,7 +97,6 @@ export function useDoorFlow(deps: {
     if (image) {
       shutter('Picture taken. Sent to SAM 3.1 for segmentation of the cabin.');
       update({ before: { image }, step: 'waiting' });
-      setResultOpen(true);
       try {
         const result = await post<CabinCheck>({ image, items: kinds });
         if (!stale()) update({ before: { image, result } });
@@ -146,7 +140,6 @@ export function useDoorFlow(deps: {
         const { image, result } = await checkCabin(f.kinds, f.robotId);
         if (stale()) return;
         update({ after: { image, result } });
-        setResultOpen(true);
         const v = cabinVerdict(result);
         void logCall(callId.current, { tool: { name: 'cabin_check', args: { when: 'after collection', items: f.kinds, model: 'sam-3.1' }, result, summary: `Cabin ${v}` } });
         state = v === 'empty' ? 'collected' : v === 'occupied' ? 'still_there' : 'unknown';
@@ -186,8 +179,7 @@ export function useDoorFlow(deps: {
     started.current.clear();
     update(null);
     setTip(null);
-    setResultOpen(false);
   }, [update]);
 
-  return { flow, tip, flash, resultOpen, collect, onState, reset, dismissTip: () => setTip(null), closeResult: () => setResultOpen(false) };
+  return { flow, tip, flash, collect, onState, reset, dismissTip: () => setTip(null) };
 }

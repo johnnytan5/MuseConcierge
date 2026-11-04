@@ -8,12 +8,12 @@ import * as THREE from 'three';
 import type { FleetClient } from '@/lib/sim/client.ts';
 import type { GeomInfo } from '@/lib/sim/protocol.ts';
 import type { RobotId } from '@/lib/fleet/types.ts';
-import { buildDoorstep, doorCamera, captureJpeg, PHOTO_LAYER, FRAME } from './doorstep.ts';
+import { buildDoorstep, doorCamera, guestCamera, captureJpeg, PHOTO_LAYER, FRAME } from './doorstep.ts';
 import { buildCabin, type Cabin } from './items.ts';
 import type { ItemKind } from '@/lib/vision/doorcheck.ts';
 
-// pov: the stage shows what a robot's camera sees, at a room's door or in its cabin.
-export type CameraMode = 'overview' | RobotId | { pov: 'door' | 'cabin'; robot: RobotId; room: string };
+// pov: the stage shows what the guest at the door sees, or the cabin camera.
+export type CameraMode = 'overview' | RobotId | { pov: 'guest' | 'cabin'; robot: RobotId; room: string };
 
 // The robots' cameras, rendered to JPEG data URLs; null before the model loads.
 export type SimCapture = {
@@ -204,7 +204,7 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
       const mode = cameraMode.current;
       if (typeof mode === 'object') {
         const body = meshes[bodyIdx[mode.robot]];
-        const pov = !body ? null : mode.pov === 'cabin' ? cabins[mode.robot]?.camera : doorCamera(new THREE.Vector3().setFromMatrixPosition(body.matrix), mode.room);
+        const pov = !body ? null : mode.pov === 'cabin' ? cabins[mode.robot]?.camera : guestCamera(mode.room);
         if (pov) {
           // Same sideways view as the photo, however tall the stage is.
           const aspect = el.clientWidth / Math.max(1, el.clientHeight);

@@ -54,6 +54,7 @@ function handle(req: Request): Reply {
     case 'apply': return fleet.apply(req.decision);
     case 'fault': return fleet.injectBatteryFault(req.robotId);
     case 'collect': return fleet.collect(req.taskId);
+    case 'binLoaded': return fleet.binLoaded(req.robotId);
     case 'snapshot': return fleet.snapshot();
     case 'reset':
       fleet = new Fleet(Date.now, opts());

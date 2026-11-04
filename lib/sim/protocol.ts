@@ -12,6 +12,7 @@ export type Request =
   | { kind: 'apply'; decision: BrainDecision }
   | { kind: 'fault'; robotId: RobotId }
   | { kind: 'collect'; taskId: string }
+  | { kind: 'binLoaded'; robotId: RobotId }
   | { kind: 'reset' }
   | { kind: 'snapshot' };
 

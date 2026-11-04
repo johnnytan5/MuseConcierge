@@ -8,6 +8,7 @@ import { ROOMS } from '@/lib/hotel.ts';
 import type { GeomInfo } from '@/lib/sim/protocol.ts';
 
 export const PHOTO_LAYER = 1;
+const DOOR_LAYER = 2; // closed room doors, seen only by the robot's door photo
 export const FRAME = { w: 640, h: 480 };
 
 const WALL_H = 1.25; // the sim's walls are 1 m; the photo walls reach a ceiling
@@ -120,9 +121,14 @@ function doorAssembly(room: string, wood: THREE.Texture): THREE.Group {
   const frame = std({ color: '#efe9de', roughness: 0.5 });
   for (const x of [-0.2, 0.2]) add(new THREE.BoxGeometry(0.03, 0.06, 1.03), frame, x, 0.01, 0.515);
   add(new THREE.BoxGeometry(0.43, 0.06, 0.03), frame, 0, 0.01, 1.015);
-  add(new THREE.BoxGeometry(0.38, 0.03, 1), std({ color: '#4a3220', roughness: 0.6 }), 0, 0, 0.5);
-  add(facing(0.38, 1), std({ map: wood, roughness: 0.55 }), 0, 0.017, 0.5);
-  add(new THREE.CylinderGeometry(0.009, 0.009, 0.08, 14).rotateZ(Math.PI / 2), std({ color: '#c0a060', metalness: 0.9, roughness: 0.25 }), -0.13, 0.035, 0.48);
+  // The door itself: the guest's view looks out through this opening, so it
+  // sits on a layer only the robot's door photo uses.
+  const leaf = [
+    add(new THREE.BoxGeometry(0.38, 0.03, 1), std({ color: '#4a3220', roughness: 0.6 }), 0, 0, 0.5),
+    add(facing(0.38, 1), std({ map: wood, roughness: 0.55 }), 0, 0.017, 0.5),
+    add(new THREE.CylinderGeometry(0.009, 0.009, 0.08, 14).rotateZ(Math.PI / 2), std({ color: '#c0a060', metalness: 0.9, roughness: 0.25 }), -0.13, 0.035, 0.48),
+  ];
+  for (const m of leaf) m.layers.set(DOOR_LAYER);
   add(facing(0.14, 0.07), std({ map: plate(room), metalness: 0.4, roughness: 0.4 }), -0.32, 0.028, 0.76);
   return g;
 }
@@ -161,8 +167,22 @@ export function doorCamera(robot: THREE.Vector3, room: string): THREE.Perspectiv
   const cam = new THREE.PerspectiveCamera(92, FRAME.w / FRAME.h, 0.05, 30);
   cam.layers.set(PHOTO_LAYER);
   cam.up.set(0, 0, 1);
+  cam.layers.enable(DOOR_LAYER);
   cam.position.set(robot.x + nx * 0.13, robot.y + ny * 0.13, 1.02);
   cam.lookAt(sx + nx * STOP_TO_DOOR, sy + ny * STOP_TO_DOOR, 0.58);
+  return cam;
+}
+
+// A guest standing just inside the room, looking out through the open doorway.
+export function guestCamera(room: string): THREE.PerspectiveCamera {
+  const id = `door_${room}`;
+  const [nx, ny] = DOOR_FACES[id];
+  const [sx, sy] = NODES[id];
+  const cam = new THREE.PerspectiveCamera(70, FRAME.w / FRAME.h, 0.05, 30);
+  cam.layers.set(PHOTO_LAYER);
+  cam.up.set(0, 0, 1);
+  cam.position.set(sx + nx * (STOP_TO_DOOR + 0.42), sy + ny * (STOP_TO_DOOR + 0.42), 0.82);
+  cam.lookAt(sx, sy, 0.46);
   return cam;
 }
 
