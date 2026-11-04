@@ -7,22 +7,24 @@ Built for the **Meta Global AI Developer Hackathon** (indie track, Push the Fron
 ## What the demo shows
 
 1. **Housekeeping is already running.** Robot 2 is out on a housekeeping drop to room 806.
-2. **A guest calls.** "Two towels to room 804, please." Muse Voice Transcribe hears it. The Spark agent confirms the room, creates the task and gives an ETA.
+2. **A guest calls.** "Two towels and my Uber Eats order to room 804, please." Muse Voice Transcribe hears it. The Spark agent confirms the room, creates one task for one cabin and gives an ETA.
 3. **The brain assigns robot 1.** Muse Wonder gets the new-order event and picks robot 1, the only idle robot.
 4. **Robot 1 has a battery fault mid-corridor**, dropping to 9%. The engine works out every option with its ETA:
    - carry on: not feasible, it needs 16% and has 9%;
    - charge first: about 11 minutes;
    - hand off to robot 2 by pausing housekeeping: about 45 seconds.
-5. **The brain hands the order to robot 2.** Robot 1 limps home to charge, and robot 2 drops housekeeping, loads the towels and delivers.
-6. **The robot checks the door.** On arrival it photographs the door: SAM 3.1 boxes the door and the room number plate, Muse Spark reads the plate, and the room is told *Arrived · door confirmed*.
-7. **Housekeeping resumes.** When robot 2 is free again, the brain puts it back on the paused housekeeping task.
+5. **The brain hands the order to robot 2.** A plan card shows every option with its ETA, the one Wonder picked and why, and everything that follows from it. Robot 1 limps home to charge, and robot 2 drops housekeeping, loads the order and delivers.
+6. **The robot checks the door.** The stage switches to the robot's own camera. SAM 3.1 boxes the door and the room number plate, and Muse Spark reads the plate.
+7. **The robot checks its cabin.** SAM 3.1 finds the towel and the food bag on the cabin camera, and the robot waits with its door open.
+8. **The guest collects.** **Mimic collection** stands in for the guest (there is no one in the simulator): the items are lifted out, the robot photographs its cabin again, and only when SAM 3.1 finds it empty, twice, does the task complete. A failed model call never counts as empty. If nobody collects within 2 minutes, the robot goes home and the task is marked *not collected*.
+9. **Housekeeping resumes.** When robot 2 is free again, the brain puts it back on the paused housekeeping task.
 
 The console shows all of it live:
 - the call transcript;
 - the task queue (the row flips to *reassigned*);
 - the brain log, in plain language, with Wonder's latency;
-- the door check (the robot's photo with SAM's boxes and the number Spark read);
-- the room notifications (*On the way*, *Delayed*, *Arrived · door confirmed*);
+- the robot cameras (each photo with SAM's boxes, and the number Spark read);
+- the room notifications (*On the way*, *Delayed*, *Arrived*, *Collected*);
 - battery bars;
 - the 3D floor with follow cameras.
 
@@ -33,7 +35,7 @@ The console shows all of it live:
 | Hearing the guest | **Muse Voice Transcribe** (`muse-voice-transcribe-1.0`) | Streaming, endpointing, keyword biasing on `room 801`…`806` and item names |
 | Talking to the guest, calling tools | **Muse Spark** (`muse-spark-1.1`) | `create_task`, `get_task_status`, `cancel_task`, `end_call`. One agent per call |
 | Running the fleet | **Muse Wonder** (`muse-wonder-1.0`) | Called only on events. Picks one engine-computed option and answers in JSON |
-| Checking the door | **SAM 3.1** (`sam-3.1`) + **Muse Spark** | On arrival, SAM boxes the door and the room number plate in the robot's camera frame; Spark reads the number. Advisory: it never holds up a delivery |
+| Seeing | **SAM 3.1** (`sam-3.1`) + **Muse Spark** | At the door, SAM boxes the door and the room number plate and Spark reads the number. In the cabin, SAM finds each item before collection and confirms the cabin is empty after it |
 
 These parts are not Meta models:
 - **Speech output:** the browser's own speech synthesis. Muse Voice Transcribe is speech-to-text only.
@@ -103,7 +105,7 @@ npm run relay                 # terminal 1: Muse Voice Transcribe relay on ws://
 npm run dev                   # terminal 2: http://localhost:3000
 ```
 
-- **Demo mode:** open **http://localhost:3000/?demo=1** to have the battery fault fire automatically on robot 1's first delivery. Without it, use the **Battery fault: robot 1** button.
+- **Demo mode:** set `NEXT_PUBLIC_DEMO_MODE=1` or open **http://localhost:3000/?demo=1** to have the battery fault fire automatically on robot 1's first delivery. Without it, use the **Battery fault: robot 1** button.
 - **Database:**
   - **Reused:** the item list comes from the `inventory_items` table of the author's earlier Concierge project. That's the one piece of pre-existing infrastructure this project uses.
   - **New (for the hosted site only):** saved runs and the per-IP call limit. They need `supabase/migrations/20261030120000_muse_fleet_state.sql` applied. Without it, local development still works: the run just isn't saved, and limits only apply in production.
@@ -112,18 +114,21 @@ npm run dev                   # terminal 2: http://localhost:3000
 ## Checks
 
 ```bash
-npm test                                    # 55 unit tests: tools, engine, options, brain, notifications, metrics, door check
+npm test                                    # unit tests: tools, call session, engine, options, brain, notifications, metrics, camera checks
 node scripts/sim-check.mts                  # the full battery-fault scenario on real MuJoCo physics, headless
 node scripts/call-check.mts                 # a scripted call through /api/agent (dev server running)
 node --env-file=.env scripts/brain-check.mts
 node scripts/relay-check.mjs [relay-url]    # stream a bench clip through the ASR relay, print what Muse heard
+npm run e2e                                 # the whole demo with real models: a recorded call through Chrome's fake mic to a completed collection
 ```
 
 ## Limits and what is not here
 
 - **Robots:** two robots on one floor, driven by a waypoint graph with pure pursuit. There is no SLAM and no lift.
 - **Speech output** uses the browser's voices.
-- **Door camera:** SAM 3.1 found nothing in the flat-shaded overview, even for "door". So the robot's door camera renders a second layer of the same floor with textured walls, carpet, wooden doors and brass number plates (`components/doorstep.ts`), and SAM finds the door at about 0.93 and the plate at 0.73–0.80. The robots in that frame are the MuJoCo robots. Real camera frames would replace this layer on hardware.
+- **Robot cameras:** SAM 3.1 found nothing in the flat-shaded overview, even for "door". So the cameras render a second layer of the same floor with textured walls, carpet, wooden doors and brass number plates (`components/doorstep.ts`), plus modelled items in the cabin (`components/items.ts`). The robots in those frames are the MuJoCo robots. Real camera frames would replace this layer on hardware.
+- **Collection is simulated:** the button and the animation stand in for a guest. SAM's checks on the frames before and after are real. Prompts were tuned on these rendered frames (the food bag is "green bag"), and items without a model skip the cabin check.
+- **The food bag is generic:** an Uber Eats order rides in an unbranded delivery bag.
 - **Spend limits:** the hosted demo allows 3 calls per IP per day.
 
 ## Repository layout
