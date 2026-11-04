@@ -4,12 +4,12 @@
 // fastest option still valid is applied instead.
 import type { FleetClient } from '../sim/client.ts';
 import type { EventWithContext } from '../sim/protocol.ts';
-import type { BrainDecision, FleetEvent, FleetSnapshot } from '../fleet/types.ts';
+import type { BrainDecision, FleetEvent, FleetSnapshot, Option } from '../fleet/types.ts';
 import { fallbackDecision, decisionFor } from './decide.ts';
 
 // Same option, ignoring the free-text reason.
 const sameChoice = (a: BrainDecision, b: BrainDecision) => JSON.stringify({ ...a, reason: '' }) === JSON.stringify({ ...b, reason: '' });
-import { describe } from './describe.ts';
+import { describe, planSteps } from './describe.ts';
 import { optionsFor } from '../fleet/options.ts';
 import { notification, type RoomNotification } from '../fleet/notify.ts';
 
@@ -25,6 +25,9 @@ export type BrainEntry = {
   line?: string;
   error?: string;
   etaS?: number; // ETA of the chosen option
+  options: Option[]; // everything the engine offered
+  chosen?: number; // index into options
+  steps?: string[]; // what the decision sets in motion
   notify?: RoomNotification | null;
 };
 
@@ -38,7 +41,7 @@ export async function decide(
   callId: string | null,
 ): Promise<void> {
   if (!context) return;
-  const entry: BrainEntry = { id: nextId++, at: Date.now(), event, taskId: context.taskId, pending: true };
+  const entry: BrainEntry = { id: nextId++, at: Date.now(), event, taskId: context.taskId, pending: true, options: context.options };
   update({ ...entry });
   let decision: BrainDecision;
   let source: 'model' | 'fallback' = 'fallback';
@@ -67,12 +70,15 @@ export async function decide(
     error = result.error;
     result = await fleet.apply(decision);
   }
-  const chosen = context.options.find((o) => decisionFor(context.taskId, o, '') && sameChoice(decisionFor(context.taskId, o, ''), decision));
+  const chosenAt = context.options.findIndex((o) => decisionFor(context.taskId, o, '') && sameChoice(decisionFor(context.taskId, o, ''), decision));
+  const chosen = context.options[chosenAt];
   const etaS = chosen && 'eta_s' in chosen ? chosen.eta_s : undefined;
   const task = snapshot.tasks.find((t) => t.id === context.taskId);
   update({
     ...entry, pending: false, decision, source, ms, error, etaS,
+    chosen: chosenAt,
     line: describe(event, decision, etaS),
+    steps: planSteps(event, decision, task?.room, etaS),
     notify: task ? notification(event, decision, task, etaS) : null,
   });
 }
