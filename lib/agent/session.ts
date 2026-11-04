@@ -23,12 +23,14 @@ export class CallSession {
   ended = false;
   queue: Promise<void> = Promise.resolve();
   speech: Promise<void> = Promise.resolve();
+  room?: string;
   escalate?: (reason: string, room?: string) => unknown;
 
   constructor(callId: string, fleet: FleetApi, items: string[], hooks: {
     onSay: (text: string) => Promise<void>;
     onEnd: () => void;
     onLog?: (entry: CallLog) => void;
+    room?: string; // the room the call is coming from
     escalate?: (reason: string, room?: string) => unknown;
     agentUrl?: string; // absolute URL when run outside the page, e.g. scripts/call-check.mts
   }) {
@@ -39,6 +41,7 @@ export class CallSession {
     this.onEnd = hooks.onEnd;
     this.onLog = hooks.onLog ?? (() => {});
     this.escalate = hooks.escalate;
+    this.room = hooks.room;
     this.agentUrl = hooks.agentUrl ?? '/api/agent';
   }
 
@@ -83,7 +86,7 @@ export class CallSession {
       for (const call of message.tool_calls) {
         let args: unknown = {};
         try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* the tool reports bad args */ }
-        const result = await runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items, escalate: this.escalate });
+        const result = await runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items, escalate: this.escalate, room: this.room });
         this.onLog({ kind: 'tool', name: call.function.name, args, result, ms });
         this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         if (call.function.name === 'end_call') hangUp = true;
@@ -99,7 +102,7 @@ export class CallSession {
     const res = await fetch(this.agentUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: this.messages, callId: this.callId }),
+      body: JSON.stringify({ messages: this.messages, callId: this.callId, room: this.room }),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error ?? `agent ${res.status}`);

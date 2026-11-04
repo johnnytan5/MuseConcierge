@@ -5,7 +5,7 @@ import type { InventoryItem } from '../inventory.ts';
 // the reasoning tokens on a call turn. See scripts/agent-ablation.mts.
 export const FAST_NUDGE = '\n\nThis is a live phone call: decide fast, think as little as possible.';
 
-export function systemPrompt(items: InventoryItem[], fast = true): string {
+export function systemPrompt(items: InventoryItem[], fast = true, room?: string): string {
   const byCategory = new Map<string, string[]>();
   for (const i of items) byCategory.set(i.category, [...(byCategory.get(i.category) ?? []), i.name]);
   const menu = [...byCategory].map(([c, names]) => `${c}: ${names.join(', ')}`).join('\n');
@@ -13,7 +13,9 @@ export function systemPrompt(items: InventoryItem[], fast = true): string {
 
 Rules:
 - Replies are spoken aloud: one or two short sentences, no lists, no markdown.
-- Read the room number back and wait for the guest to confirm it before calling create_task.
+${room
+    ? `- This call is coming from room ${room}; the switchboard already told you, as it would at any hotel. Never ask for the room or read it back. Everything goes to room ${room} unless the guest names a different one.\n- Call create_task as soon as you know what they want.`
+    : '- Read the room number back and wait for the guest to confirm it before calling create_task.'}
 - Guest rooms are ${ROOMS.join(', ')}. Pass the room as digits.
 - Only offer items from the list below. If a tool returns an error, tell the guest briefly and ask what you need.
 - Do not speak in the same turn as a tool call. Speak after you have the tool result.

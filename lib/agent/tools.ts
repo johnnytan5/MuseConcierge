@@ -23,7 +23,7 @@ export type FleetApi = {
   cancelTask(id: string): MaybeAsync<boolean>;
 };
 
-export type ToolContext = { callId: string; items: string[]; escalate?: (reason: string, room?: string) => unknown };
+export type ToolContext = { callId: string; items: string[]; escalate?: (reason: string, room?: string) => unknown; room?: string };
 
 const MAX_QTY = 5;
 const MAX_LINES = 3; // what fits one cabin
@@ -43,7 +43,7 @@ export async function runTool(name: string, args: unknown, fleet: FleetApi, ctx:
   const a = (args ?? {}) as Record<string, unknown>;
   switch (name) {
     case 'create_task': {
-      const room = String(a.room ?? '').trim();
+      const room = String(a.room ?? ctx.room ?? '').trim();
       if (!ROOMS.includes(room)) return { error: `room "${room}" does not exist; rooms are ${ROOMS.join(', ')}. Ask the guest again.` };
       const wanted = [{ item: a.item, qty: a.qty }, ...(Array.isArray(a.also) ? a.also : [])].slice(0, MAX_LINES) as { item?: unknown; qty?: unknown }[];
       const lines: LineItem[] = [];
@@ -66,7 +66,7 @@ export async function runTool(name: string, args: unknown, fleet: FleetApi, ctx:
     case 'cancel_task':
       return (await fleet.cancelTask(String(a.task_id))) ? { cancelled: true } : { error: `cannot cancel ${a.task_id}` };
     case 'escalate_to_frontdesk':
-      await ctx.escalate?.(String(a.reason ?? 'Guest asked for the front desk'), a.room ? String(a.room) : undefined);
+      await ctx.escalate?.(String(a.reason ?? 'Guest asked for the front desk'), a.room ? String(a.room) : ctx.room);
       return { ack: true };
     case 'end_call':
       return { ended: true };
@@ -81,7 +81,7 @@ const fn = (name: string, description: string, properties: Record<string, unknow
 });
 
 export const TOOL_DEFS: ToolDef[] = [
-  fn('create_task', 'Send a delivery robot with an item to a guest room. Call only after the guest confirmed the room number.', {
+  fn('create_task', 'Send a delivery robot with an item to a guest room.', {
     item: { type: 'string', description: 'Item name from the inventory list' },
     qty: { type: 'integer', minimum: 1, maximum: MAX_QTY },
     also: {
@@ -89,8 +89,8 @@ export const TOOL_DEFS: ToolDef[] = [
       description: 'Other items for the same room; they ride in the same cabin',
       items: { type: 'object', properties: { item: { type: 'string' }, qty: { type: 'integer', minimum: 1, maximum: MAX_QTY } }, required: ['item', 'qty'] },
     },
-    room: { type: 'string', description: 'Room number as digits, e.g. "804"' },
-  }, ['item', 'qty', 'room']),
+    room: { type: 'string', description: 'Room number as digits, e.g. "804". Leave out for the room the call is coming from.' },
+  }, ['item', 'qty']),
   fn('get_task_status', 'Current status and ETA of a delivery.', { task_id: { type: 'string' } }, ['task_id']),
   fn('cancel_task', 'Cancel a delivery the guest no longer wants.', { task_id: { type: 'string' } }, ['task_id']),
   fn('escalate_to_frontdesk', 'Pass something the robots cannot do to the front desk staff: late checkout, complaints, billing, or a guest asking for a person.', {

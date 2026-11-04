@@ -4,13 +4,14 @@
 import { chat, MODELS, type ChatMessage } from '@/lib/meta/client.ts';
 import { TOOL_DEFS } from '@/lib/agent/tools.ts';
 import { systemPrompt } from '@/lib/agent/prompt.ts';
+import { ROOMS } from '@/lib/hotel.ts';
 import { loadInventory, deliverable } from '@/lib/inventory.ts';
 import { callIsRecent, LIMITS } from '@/lib/limits.ts';
 
 const MAX_MESSAGES = 60; // a short room-service call; caps cost per request
 
 export async function POST(req: Request) {
-  const { messages, callId } = (await req.json()) as { messages: ChatMessage[]; callId?: string };
+  const { messages, callId, room } = (await req.json()) as { messages: ChatMessage[]; callId?: string; room?: string };
   if (!(await callIsRecent(callId, LIMITS.callMinutes))) return Response.json({ error: 'call expired' }, { status: 403 });
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES || messages.some((m) => m.role === 'system')) {
     return Response.json({ error: 'bad messages' }, { status: 400 });
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
     const items = deliverable(await loadInventory());
     const message = await chat({
       model: MODELS.spark,
-      messages: [{ role: 'system', content: systemPrompt(items) }, ...messages],
+      messages: [{ role: 'system', content: systemPrompt(items, true, room && ROOMS.includes(room) ? room : undefined) }, ...messages],
       tools: TOOL_DEFS,
       maxTokens: 1000,
       reasoningEffort: 'minimal',

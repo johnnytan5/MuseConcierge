@@ -68,3 +68,11 @@ test('end_call → {ended: true}; unknown tool → error', async () => {
   assert.deepEqual(await runTool('end_call', {}, stubFleet(), ctx), { ended: true });
   assert.ok('error' in await runTool('fly', {}, stubFleet(), ctx));
 });
+
+test('create_task goes to the room the call came from unless the guest names another', async () => {
+  const fleet = stubFleet();
+  const here = { ...ctx, room: '1204' };
+  await runTool('create_task', { item: 'towel', qty: 1 }, fleet, here);
+  await runTool('create_task', { item: 'towel', qty: 1, room: '803' }, fleet, here);
+  assert.deepEqual((fleet.created as { room: string }[]).map((c) => c.room), ['1204', '803']);
+});
