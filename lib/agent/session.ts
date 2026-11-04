@@ -4,6 +4,9 @@ import type { ChatMessage, AssistantMessage } from '../meta/client.ts';
 import { runTool, type FleetApi } from './tools.ts';
 
 const MAX_TOOL_ROUNDS = 4; // stops a model that keeps calling tools from looping
+const ANYTHING_ELSE = 'Is there anything else I can help with?';
+const GOODBYE = 'Thank you, have a nice stay.';
+const NOTHING_ELSE = /\b(no|nope|nothing|that'?s (all|it)|thanks|thank you|bye|goodbye)\b/i;
 
 export type CallLog =
   | { kind: 'guest'; text: string }
@@ -23,6 +26,7 @@ export class CallSession {
   ended = false;
   queue: Promise<void> = Promise.resolve();
   speech: Promise<void> = Promise.resolve();
+  closing = false; // a request is done, so the guest may be wrapping up
   room?: string;
   escalate?: (reason: string, room?: string) => unknown;
 
@@ -65,37 +69,63 @@ export class CallSession {
     this.onLog({ kind: 'guest', text });
     this.messages.push({ role: 'user', content: text });
     let hangUp = false;
-    let placed = false;
+    let done = false; // this turn placed an order or reached the front desk
+    let spoke = false;
+    let asked = false;
+    let usedTool = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const { message, ms } = await this.complete();
       this.messages.push(message);
-      if (message.content?.trim()) {
-        const line = message.content.trim();
-        this.onLog({ kind: 'agent', text: line, ms });
-        // Speech is queued, not awaited: tools and the next model call run
-        // while the agent is still talking.
-        this.speech = this.speech.then(() => this.onSay(line));
+      // Spark's own goodbye tends to announce the hang-up, so the last line is fixed.
+      const hangingUp = !done && message.tool_calls?.some((c) => c.function.name === 'end_call');
+      const line = hangingUp ? undefined : message.content?.trim();
+      if (line) {
+        this.say(line, ms);
+        spoke = true;
+        asked = line.includes('?');
       }
       if (!message.tool_calls?.length) {
-        // Spark often confirms the order and stops without calling end_call.
-        // Once the order is placed and confirmed, the call is over regardless.
-        hangUp = placed && !!message.content?.trim();
+        // Spark often says goodbye and stops without calling end_call.
+        hangUp = this.closing && !usedTool && !asked && !!line && NOTHING_ELSE.test(text);
         break;
       }
+      let heldOpen = false;
       for (const call of message.tool_calls) {
+        // The guest hasn't been asked yet whether they need anything else.
+        if (call.function.name === 'end_call' && done) {
+          this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ ended: false }) });
+          heldOpen = true;
+          continue;
+        }
+        usedTool = true;
         let args: unknown = {};
         try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* the tool reports bad args */ }
         const result = await runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items, escalate: this.escalate, room: this.room });
         this.onLog({ kind: 'tool', name: call.function.name, args, result, ms });
         this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         if (call.function.name === 'end_call') hangUp = true;
-        if (call.function.name === 'create_task' && !('error' in result)) placed = true;
+        if ((call.function.name === 'create_task' || call.function.name === 'escalate_to_frontdesk') && !('error' in result)) done = true;
       }
-      if (hangUp) break;
+      if (hangUp || (heldOpen && spoke)) break;
     }
+    if (done) this.closing = true;
+    if (done && !asked && !hangUp) this.closeWith(ANYTHING_ELSE);
+    if (hangUp && !spoke) this.closeWith(GOODBYE);
     await this.speech;
     if (hangUp) this.end();
+  }
+
+  // Speech is queued, not awaited: tools and the next model call run while
+  // the agent is still talking.
+  say(line: string, ms: number): void {
+    this.onLog({ kind: 'agent', text: line, ms });
+    this.speech = this.speech.then(() => this.onSay(line));
+  }
+
+  closeWith(line: string): void {
+    this.messages.push({ role: 'assistant', content: line });
+    this.say(line, 0);
   }
 
   async complete(): Promise<{ message: AssistantMessage; ms: number }> {

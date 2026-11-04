@@ -86,7 +86,8 @@ try {
   if (!new RegExp(`"room":"${ROOM}"`).test(await text('.transcript'))) throw new Error('the order did not go to the room the call came from');
   console.log(`\n--- call ---\n${await text('.transcript')}\n------------\n`);
   await see('.tasks', /towel \+ .*uber|uber.* \+ .*towel/, 'one task carries the towel and the Uber Eats order');
-  await see('.transcript', /Call ended/, 'call ended by the agent', 30000);
+  await see('.transcript', /anything else/i, 'agent asks if there is anything else', 30000);
+  await see('.transcript', /Call ended/, 'guest says no, the agent ends the call', 60000);
 
   if ((await page.evaluate(() => window.__browserVoice)) !== 0) throw new Error('the browser voice was used: AssemblyAI TTS failed');
   if (ttsAudio < 2) throw new Error(`expected spoken replies through /api/tts, got ${ttsAudio}`);

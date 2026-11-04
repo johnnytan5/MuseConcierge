@@ -97,5 +97,5 @@ export const TOOL_DEFS: ToolDef[] = [
     reason: { type: 'string', description: 'What the guest needs, in one short sentence' },
     room: { type: 'string', description: 'Room number as digits, if known' },
   }, ['reason']),
-  fn('end_call', 'Hang up after the guest has their confirmation and ETA, or says goodbye.'),
+  fn('end_call', 'Hang up once the guest says goodbye or needs nothing else.'),
 ];
