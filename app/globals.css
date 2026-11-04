@@ -71,6 +71,15 @@ button { font: inherit; color: inherit; }
 .panel.line { background: var(--surface); }
 .line-row { display: flex; align-items: center; gap: 16px; }
 .line-row .btn { flex: none; }
+.calling-from { flex: none; display: flex; flex-direction: column; gap: 3px; }
+.calling-from small { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.calling-from select { padding: 7px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 0; font: 700 16px var(--mono); color: var(--ink); cursor: pointer; }
+.calling-from select:disabled { opacity: 0.6; cursor: not-allowed; }
+.live-flow .flow { padding: 10px 12px; }
+.live-flow .flow-col { min-width: 120px; gap: 3px; }
+.live-flow .node { padding: 4px 8px; font-size: 10.5px; }
+.live-flow .flow-panel > h6 { padding: 7px 12px; }
+.live-flow { flex: none; }
 .line-row p { font-size: 12px; line-height: 1.45; }
 .transcript-panel { flex: 1; min-height: 140px; overflow: hidden; }
 .quiet { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 12px 8px; }
@@ -221,7 +230,7 @@ button { font: inherit; color: inherit; }
 .ledger { margin-bottom: 20px; }
 .tab-page { height: auto; }
 .tab-page:has(.call) { min-height: 100%; }
-.transcript-panel { max-height: 420px; }
+.transcript-panel { max-height: 300px; }
 
 /* The sim */
 .stage { position: relative; min-width: 0; min-height: 0; background: #b4b4b4; overflow: hidden; }

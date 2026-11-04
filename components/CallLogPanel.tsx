@@ -20,6 +20,37 @@ function Node({ node, lit }: { node: FlowNode; lit: boolean }) {
   );
 }
 
+// The call at a glance: who took part, what got done, how it ended.
+export function CallFlowGraph({ room, turns, tools }: { room: string | null; turns: Turn[]; tools: ToolEvent[] }) {
+  const outcomes = flowOutcomes(tools);
+  const brain = tools.some((t) => t.tool_name === 'brain_decision');
+  const robot = tools.some((t) => t.tool_name === 'door_check' || t.tool_name === 'cabin_check');
+  return (
+    <section className="flow-panel">
+      <h6>What happened</h6>
+      <div className="flow">
+        <div className="flow-col">
+          <small>Who</small>
+          <Node node={{ label: room ? `Guest in ${room}` : 'Guest', count: 0 }} lit={turns.some((t) => t.role === 'guest')} />
+          <Node node={{ label: 'Assistant', count: 0 }} lit={turns.some((t) => t.role === 'agent')} />
+          {brain && <Node node={{ label: 'Fleet brain', count: 0 }} lit />}
+          {robot && <Node node={{ label: 'Delivery robot', count: 0 }} lit />}
+        </div>
+        <span className="flow-arrow" aria-hidden="true">&gt;</span>
+        <div className="flow-col">
+          <small>What it did</small>
+          {flowActions(tools).map((n) => <Node key={n.label} node={n} lit={n.count > 0} />)}
+        </div>
+        <span className="flow-arrow" aria-hidden="true">&gt;</span>
+        <div className="flow-col">
+          <small>Result</small>
+          {outcomes.length ? outcomes.map((n) => <Node key={n.label} node={n} lit />) : <Node node={{ label: 'No order placed', count: 0 }} lit={false} />}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CallDialog({ group, onClose }: { group: Group; onClose: () => void }) {
   const { session, turns, tools } = group;
   useEffect(() => {
@@ -34,9 +65,6 @@ function CallDialog({ group, onClose }: { group: Group; onClose: () => void }) {
     ...tools.map((tool) => ({ at: Date.parse(tool.created_at), turn: null, tool })),
   ].sort((a, b) => a.at - b.at);
   const guestTimes = turns.filter((t) => t.role === 'guest').map((t) => Date.parse(t.created_at));
-  const outcomes = flowOutcomes(tools);
-  const brain = tools.some((t) => t.tool_name === 'brain_decision');
-  const cameras = tools.some((t) => t.tool_name === 'door_check' || t.tool_name === 'cabin_check');
   const replies = turns.filter((t) => t.role === 'agent').map((t) => replyMs(Date.parse(t.created_at), guestTimes)).filter((n): n is number => n !== null).sort((a, b) => a - b);
 
   return (
@@ -53,28 +81,7 @@ function CallDialog({ group, onClose }: { group: Group; onClose: () => void }) {
           <button className="btn small" onClick={onClose}>Close</button>
         </header>
         <div className="dialog-body">
-          <section className="flow-panel">
-            <h6>What happened</h6>
-            <div className="flow">
-              <div className="flow-col">
-                <small>Who</small>
-                <Node node={{ label: guest, count: 0 }} lit={turns.some((t) => t.role === 'guest')} />
-                <Node node={{ label: 'Assistant', count: 0 }} lit={turns.some((t) => t.role === 'agent')} />
-                {brain && <Node node={{ label: 'Fleet brain', count: 0 }} lit />}
-                {cameras && <Node node={{ label: 'Delivery robot', count: 0 }} lit />}
-              </div>
-              <span className="flow-arrow" aria-hidden="true">&gt;</span>
-              <div className="flow-col">
-                <small>What it did</small>
-                {flowActions(tools).map((n) => <Node key={n.label} node={n} lit={n.count > 0} />)}
-              </div>
-              <span className="flow-arrow" aria-hidden="true">&gt;</span>
-              <div className="flow-col">
-                <small>Result</small>
-                {outcomes.length ? outcomes.map((n) => <Node key={n.label} node={n} lit />) : <Node node={{ label: 'No order placed', count: 0 }} lit={false} />}
-              </div>
-            </div>
-          </section>
+          <CallFlowGraph room={session.room} turns={turns} tools={tools} />
           <section className="flow-panel">
             <h6>How the call went{replies.length > 0 && <span className="mono muted aside">Typically answered in {seconds(replies[Math.floor(replies.length / 2)])}</span>}</h6>
             <div className="callsteps">

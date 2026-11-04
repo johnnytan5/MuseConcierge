@@ -8,13 +8,15 @@ import { speak } from '@/lib/voice/tts.ts';
 import { CallSession, type CallLog } from '@/lib/agent/session.ts';
 import type { FleetApi } from '@/lib/agent/tools.ts';
 import { deductStock, escalate, logCall } from '@/lib/admin/client.ts';
+import { ROOMS } from '@/lib/hotel.ts';
 
-const GREETING = 'Room service, how can I help?';
+const DEFAULT_ROOM = '804';
 const PREFERRED = (process.env.NEXT_PUBLIC_ASR_PROVIDER as AsrProvider | undefined) ?? 'meta';
 
 type Line = { who: 'guest' | 'agent' | 'system'; text: string; detail?: string };
 
-export default function CallPanel({ fleet, visitorId, onCallStart, children }: { fleet: FleetApi | null; visitorId: string; onCallStart?: (callId: string) => void; children?: ReactNode }) {
+export default function CallPanel({ fleet, visitorId, onCallStart, children, flow }: { fleet: FleetApi | null; visitorId: string; onCallStart?: (callId: string, room: string) => void; children?: ReactNode; flow?: ReactNode }) {
+  const [room, setRoom] = useState(DEFAULT_ROOM);
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState('');
@@ -46,15 +48,17 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children }: {
       const started = await (await fetch('/api/call/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ visitorId }),
+        body: JSON.stringify({ visitorId, room }),
       })).json();
       if (!started.callId) throw new Error(started.error ?? 'could not start the call');
-      onCallStart?.(started.callId);
+      onCallStart?.(started.callId, room);
       const callId = (openCallId = started.callId as string);
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       const inv = await (await fetch('/api/inventory')).json();
       if (!inv.items) throw new Error(inv.error ?? 'inventory unavailable');
+      const greeting = `Room service for room ${room}, how can I help?`;
       const call = new CallSession(started.callId, fleet, inv.items, {
+        room,
         onSay: (t) => speak(t, gate),
         onEnd: () => { stop(); add({ who: 'system', text: 'Call ended.' }); },
         escalate: (reason, room) => escalate(callId, reason, room),
@@ -93,9 +97,9 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children }: {
       }
       setProvider(used);
       setLive(true);
-      add({ who: 'agent', text: GREETING });
-      void logCall(callId, { turn: { role: 'agent', text: GREETING } });
-      await speak(GREETING, gate);
+      add({ who: 'agent', text: greeting });
+      void logCall(callId, { turn: { role: 'agent', text: greeting } });
+      await speak(greeting, gate);
     } catch (e) {
       stop();
       add({ who: 'system', text: `could not start: ${e instanceof Error ? e.message : e}` });
@@ -113,14 +117,21 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children }: {
           {provider && <span className="muted">{provider === 'meta' ? 'Muse Voice Transcribe' : 'AssemblyAI backup'} · Muse Spark</span>}
         </header>
         <div className="line-row">
+          <label className="calling-from">
+            <small>Calling from</small>
+            <select value={room} disabled={live || busy} onChange={(e) => setRoom(e.target.value)}>
+              {ROOMS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
           <button className={live ? 'btn danger' : 'btn primary'} disabled={!fleet || busy} onClick={live ? () => hangup.current() : start}>
             {busy ? 'Connecting…' : live ? 'Hang up' : 'Call the front desk'}
           </button>
-          <p className="muted">Uses your microphone. Ask for towels or an Uber Eats order, for rooms 803, 804, 1204 or 1205. Up to 3 calls a day; your IP address is logged to enforce this.</p>
+          <p className="muted">Uses your microphone. Ask for towels or an Uber Eats order. Up to 3 calls a day; your IP address is logged to enforce this.</p>
         </div>
       </section>
       {children}
       <section className="panel transcript-panel">
+        <h6>Call log</h6>
         {lines.length === 0 && !partial ? (
           <div className="quiet">
             <span className="chip">Line is quiet</span>
@@ -139,6 +150,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children }: {
           </ol>
         )}
       </section>
+      {flow}
     </div>
   );
 }

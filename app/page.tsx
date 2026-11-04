@@ -11,7 +11,7 @@ import BrainLog, { BrainCard } from '@/components/BrainLog.tsx';
 import RoomNotifications, { type NotificationEntry } from '@/components/RoomNotifications.tsx';
 import MetricsBar from '@/components/MetricsBar.tsx';
 import InventoryPanel from '@/components/InventoryPanel.tsx';
-import CallLogPanel from '@/components/CallLogPanel.tsx';
+import CallLogPanel, { CallFlowGraph } from '@/components/CallLogPanel.tsx';
 import EscalationsPanel from '@/components/EscalationsPanel.tsx';
 import { useRecords } from '@/components/useRecords.ts';
 import { logCall } from '@/lib/admin/client.ts';
@@ -45,6 +45,7 @@ export default function Console() {
   const [notes, setNotes] = useState<NotificationEntry[]>([]);
   const [plan, setPlan] = useState<BrainEntry | null>(null);
   const [tab, setTab] = useState<Tab>('live');
+  const [liveCall, setLiveCall] = useState<{ id: string; room: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(true);
   const [demo, setDemo] = useState(false);
   const saved = useRef({ id: '', dirty: false, persist: true });
@@ -156,6 +157,7 @@ export default function Console() {
     setBrainLog([]);
     setNotes([]);
     setPlan(null);
+    setLiveCall(null);
     door.reset();
     setCamera('overview');
     await client.reset();
@@ -207,7 +209,20 @@ export default function Console() {
           )}
           <div className="content">
             <div className={show('live')}>
-              <CallPanel fleet={client} visitorId={visitor} onCallStart={(id) => { lastCall.current = id; }}>
+              <CallPanel
+                fleet={client}
+                visitorId={visitor}
+                onCallStart={(id, room) => { lastCall.current = id; setLiveCall({ id, room }); }}
+                flow={liveCall && (
+                  <div className="live-flow">
+                    <CallFlowGraph
+                      room={liveCall.room}
+                      turns={records?.turns.filter((t) => t.session_id === liveCall.id) ?? []}
+                      tools={records?.tools.filter((t) => t.session_id === liveCall.id) ?? []}
+                    />
+                  </div>
+                )}
+              >
                 <RobotActions snap={snap} flow={door.flow} onLoaded={binLoaded} onCollect={door.collect} />
               </CallPanel>
             </div>

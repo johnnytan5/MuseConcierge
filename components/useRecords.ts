@@ -11,7 +11,7 @@ export type Item = { id: string; name: string; category: string; price: number |
 export type LedgerRow = { id: string; item_name: string; delta: number; before_count: number | null; after_count: number | null; task_id: string | null; source: string; created_at: string };
 export type Records = { sessions: Session[]; turns: Turn[]; tools: ToolEvent[]; escalations: Escalation[]; items: Item[]; ledger: LedgerRow[] };
 
-const POLL_MS = 4000;
+const POLL_MS = 2500;
 
 export function useRecords() {
   const [records, setRecords] = useState<Records | null>(null);

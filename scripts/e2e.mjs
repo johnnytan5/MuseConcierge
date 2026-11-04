@@ -13,6 +13,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 
 const URL = process.env.E2E_URL ?? 'http://localhost:3000/?demo=1';
+const ROOM = '1204';
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const shots = process.argv[2];
 if (shots) mkdirSync(shots, { recursive: true });
@@ -69,9 +70,13 @@ try {
   await see('.notes, .tasks', /hk1|linen/, 'housekeeping already running on robot 2');
   await page.waitForTimeout(1500);
 
+  // A room that isn't the default, to prove the dropdown drives everything.
+  await page.locator('.calling-from select').selectOption(ROOM);
   await page.getByRole('button', { name: 'Call the front desk' }).click();
   await see('.transcript', /towel/, 'guest order transcribed by Muse', 30000);
-  await see('.transcript', /create_task/, 'Muse Spark called create_task after the read-back', 45000);
+  await see('.transcript', /create_task/, 'Muse Spark placed the order without asking for the room', 45000);
+  if (/which room|what room|your room number/i.test(await text('.transcript'))) throw new Error('the agent asked for the room');
+  if (!new RegExp(`"room":"${ROOM}"`).test(await text('.transcript'))) throw new Error('the order did not go to the room the call came from');
   console.log(`\n--- call ---\n${await text('.transcript')}\n------------\n`);
   await see('.tasks', /towel \+ .*uber|uber.* \+ .*towel/, 'one task carries the towel and the Uber Eats order');
   await see('.transcript', /Call ended/, 'call ended by the agent', 30000);
@@ -93,7 +98,7 @@ try {
   await loaded.click();
   pass('robot 2 loaded at the desk with Bin loaded');
 
-  await see('.stage .povtag', /Guest.s view, room 804/, 'stage switches to the guest\'s view on arrival', 120000);
+  await see('.stage .povtag', new RegExp(`Guest.s view, room ${ROOM}`), 'stage switches to the guest\'s view on arrival', 120000);
   await shot('2a-guest-door-closed');
   await page.waitForTimeout(2000);
   await shot('2b-guest-door-opening');
@@ -128,11 +133,14 @@ try {
   await see('.checks', /Cabin empty/, 'SAM confirms the cabin is empty', 45000);
   await shot('5-cabin-after');
   await see('.tasks', /collected/, 'task completes only after the empty cabin');
+  await see('.live-flow', new RegExp(`Who.*Guest in ${ROOM}.*What it did.*Order handling.*Fleet planning.*Delivery checks.*Result.*Order placed.*Handed to another robot.*Collected by the guest`), 'live call shows What happened', 15000);
+  await page.locator('.live-flow').scrollIntoViewIfNeeded();
+  await shot('5b-live-what-happened');
   await see('.notes', /Collected/, 'room notified');
   await see('.panel', /Robot 2\s*Returning/, 'robot 2 closes up and leaves', 20000);
   // Nothing may still offer an action for a delivery that is over.
   if (await page.getByRole('button', { name: /Mimic collection|Check the cabin again/ }).count()) throw new Error('a finished delivery still offers Mimic collection');
-  await see('.robot-actions', /Last delivery, room 804: collected/, 'finished delivery shows as the last delivery');
+  await see('.robot-actions', new RegExp(`Last delivery, room ${ROOM}: collected`), 'finished delivery shows as the last delivery');
   await see('.brainlog', /hk1 resumed/, 'brain resumes housekeeping', 90000);
 
   // The call's complete record, from the shared database.
