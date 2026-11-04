@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import SimView, { type CameraMode, type DoorCapture } from '@/components/SimView.tsx';
+import SimView, { type CameraMode, type SimCapture } from '@/components/SimView.tsx';
 import DoorCheckPanel, { type DoorCheckEntry } from '@/components/DoorCheckPanel.tsx';
 import CallPanel from '@/components/CallPanel.tsx';
 import RobotCard from '@/components/RobotCard.tsx';
@@ -40,7 +40,7 @@ export default function Console() {
   const lastCall = useRef<string | null>(null); // brain requests ride on the latest call's limit
   const [visitor, setVisitor] = useState('');
   const [doorCheck, setDoorCheck] = useState<DoorCheckEntry | null>(null);
-  const capture = useRef<DoorCapture | null>(null);
+  const capture = useRef<SimCapture | null>(null);
 
   useEffect(() => {
     let c: FleetClient | null = null;
@@ -55,7 +55,7 @@ export default function Console() {
 
     // On arrival the robot photographs the door; the check never holds up the delivery.
     const checkDoor = async (taskId: string, room: string, robotId: RobotId) => {
-      const image = capture.current?.(robotId, room);
+      const image = capture.current?.door(robotId, room);
       if (!image) return;
       setDoorCheck({ taskId, room, robotId, image });
       const update = (patch: Partial<DoorCheckEntry>) => setDoorCheck((d) => (d?.taskId === taskId ? { ...d, ...patch } : d));
@@ -111,7 +111,7 @@ export default function Console() {
       });
       setClient(c);
       // Dev-only handle so scripted browser checks can place orders without a mic.
-      if (process.env.NODE_ENV !== 'production') (window as unknown as { __fleet: FleetClient }).__fleet = c;
+      if (process.env.NODE_ENV !== 'production') Object.assign(window, { __fleet: c, __capture: capture });
     })();
 
     return () => { cancelled = true; unsubscribe(); c?.terminate(); };

@@ -1,7 +1,7 @@
 // The fleet task engine: task queue, robot phases, battery, and execution of
 // brain decisions. Pure logic: physics comes in through SimPort, time through
 // the clock, so tests drive it with a kinematic fake.
-import { route, waypoints, nearestNode, pursue, NODES, SPEED } from './nav.ts';
+import { route, waypoints, nearestNode, pursue, NODES, SPEED, doorFacingYaw, turnTo } from './nav.ts';
 import { optionsFor, dockOf, doorOf, distance, LOAD_S, GUEST_DWELL_S, HK_DWELL_S, CHARGE_S, DRAIN_PER_M } from './options.ts';
 import { ROBOT_IDS } from './types.ts';
 import type { BrainDecision, FleetEvent, FleetSnapshot, Robot, RobotId, SimPort, Task, TaskStatus } from './types.ts';
@@ -159,7 +159,8 @@ export class Fleet implements FleetApi {
       const p = sim.pose(r.id);
       if (MOVING.has(r.phase)) r.battery = Math.max(0, r.battery - Math.hypot(p.x - r.pose.x, p.y - r.pose.y) * DRAIN_PER_M);
       r.pose = p;
-      sim.lid(r.id, r.phase === 'at_room');
+      const atStop = r.phase === 'at_room' || r.phase === 'loading';
+      sim.lid(r.id, atStop);
 
       if (MOVING.has(r.phase) && this.mustWait(r)) {
         sim.drive(r.id, 0, 0);
@@ -169,7 +170,7 @@ export class Fleet implements FleetApi {
         sim.drive(r.id, c.v, c.w);
         if (c.done) this.arrive(r);
       } else {
-        sim.drive(r.id, 0, 0);
+        sim.drive(r.id, 0, atStop ? turnTo(p.yaw, doorFacingYaw(p.y)) : 0);
         if (r.until && now >= r.until) this.timerDone(r);
       }
       this.maybeDemoFault(r);

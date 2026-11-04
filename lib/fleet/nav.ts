@@ -106,3 +106,11 @@ export function pursue(pose: Pose, pts: Point[], idx: number, lookahead = 0.4): 
   const v = Math.abs(err) > 0.6 ? 0 : SPEED * Math.cos(err) * Math.max(0.3, slow);
   return { v, w, idx, done: false };
 }
+
+// The cabin door is on the robot's -y side. To open it towards the wall it
+// stopped at, a robot faces +x on the south side and -x on the north side.
+export const doorFacingYaw = (y: number) => (y < 0 ? 0 : Math.PI);
+
+export function turnTo(yaw: number, target: number): number {
+  return Math.max(-1.5, Math.min(1.5, 2.5 * wrap(target - yaw)));
+}

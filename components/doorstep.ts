@@ -144,7 +144,7 @@ export function doorCamera(robot: THREE.Vector3, room: string): THREE.Perspectiv
 
 // Render one frame from cam into a JPEG data URL, off screen.
 export function captureJpeg(renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera): string {
-  const target = new THREE.WebGLRenderTarget(FRAME.w, FRAME.h, { colorSpace: THREE.SRGBColorSpace });
+  const target = new THREE.WebGLRenderTarget(FRAME.w, FRAME.h, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
   const prev = renderer.getRenderTarget();
   renderer.setRenderTarget(target);
   renderer.render(scene, cam);

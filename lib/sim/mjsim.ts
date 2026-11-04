@@ -1,5 +1,5 @@
 // SimPort over MuJoCo (WASM): the engine's drive/lid/pose calls become wheel
-// and lid actuator targets on public/sim/floor.xml.
+// and door actuator targets on public/sim/floor.xml.
 import type { Pose, RobotId, SimPort } from '../fleet/types.ts';
 import { ROBOT_IDS } from '../fleet/types.ts';
 
@@ -9,7 +9,8 @@ const TRACK = 0.38; // m between wheel centres
 // almost 1:1; measured 0.896 m of 0.9 m commanded over 3 s. Re-measure if
 // the wheels, masses or kv change.
 const WHEEL_GAIN = 1.0;
-const LID_OPEN = 0.3; // m of lid slide travel
+const DOOR_TOP_OPEN = 0.16; // m of slide travel, floor.xml door panels
+const DOOR_BOTTOM_OPEN = 0.04;
 const BASE_Z = 0.065; // free-joint height when resting on the floor
 
 // The subset of the @mujoco/mujoco module this file uses.
@@ -22,7 +23,7 @@ type Mujoco = {
 type Model = { opt: { timestep: number }; jnt_qposadr: ArrayLike<number>; jnt_dofadr: ArrayLike<number> };
 type Data = { ctrl: Float64Array; qpos: Float64Array; qvel: Float64Array; xpos: Float64Array; xquat: Float64Array; time: number };
 
-type Ids = { body: number; qpos: number; dof: number; wl: number; wr: number; lid: number };
+type Ids = { body: number; qpos: number; dof: number; wl: number; wr: number; doorTop: number; doorBottom: number };
 
 export class MjSim implements SimPort {
   mj: Mujoco;
@@ -48,7 +49,8 @@ export class MjSim implements SimPort {
         dof: model.jnt_dofadr[root],
         wl: id(mj.mjtObj.mjOBJ_ACTUATOR, `${r}_wl`),
         wr: id(mj.mjtObj.mjOBJ_ACTUATOR, `${r}_wr`),
-        lid: id(mj.mjtObj.mjOBJ_ACTUATOR, `lid_${r}`),
+        doorTop: id(mj.mjtObj.mjOBJ_ACTUATOR, `${r}_door_top`),
+        doorBottom: id(mj.mjtObj.mjOBJ_ACTUATOR, `${r}_door_bottom`),
       };
     }
     this.ids = ids;
@@ -67,7 +69,8 @@ export class MjSim implements SimPort {
   }
 
   lid(r: RobotId, open: boolean): void {
-    this.data.ctrl[this.ids[r].lid] = open ? LID_OPEN : 0;
+    this.data.ctrl[this.ids[r].doorTop] = open ? DOOR_TOP_OPEN : 0;
+    this.data.ctrl[this.ids[r].doorBottom] = open ? DOOR_BOTTOM_OPEN : 0;
   }
 
   teleport(r: RobotId, p: Pose): void {

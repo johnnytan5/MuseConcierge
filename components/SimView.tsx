@@ -9,12 +9,18 @@ import type { FleetClient } from '@/lib/sim/client.ts';
 import type { GeomInfo } from '@/lib/sim/protocol.ts';
 import type { RobotId } from '@/lib/fleet/types.ts';
 import { NODES } from '@/lib/fleet/nav.ts';
-import { buildDoorstep, doorCamera, captureJpeg, PHOTO_LAYER } from './doorstep.ts';
+import { buildDoorstep, doorCamera, captureJpeg, PHOTO_LAYER, FRAME } from './doorstep.ts';
+import { buildCabin, type Cabin, type ItemKind } from './items.ts';
 
 export type CameraMode = 'overview' | RobotId;
 
-// Renders robot's door camera at room into a JPEG data URL, or null before the model loads.
-export type DoorCapture = (robot: RobotId, room: string) => string | null;
+// The robots' cameras, rendered to JPEG data URLs; null before the model loads.
+export type SimCapture = {
+  door(robot: RobotId, room: string): string | null;
+  cabin(robot: RobotId): string | null;
+  setItem(robot: RobotId, kind: ItemKind | null): void;
+  guestView(robot: RobotId, reaching?: boolean): string | null;
+};
 
 const OVERVIEW_DIR = new THREE.Vector3(0, -0.5, 1).normalize(); // from the floor centre toward the overview camera
 
@@ -59,7 +65,7 @@ function label(text: string, color = '#1d1d1f', scale = 0.55): THREE.Sprite {
   return sprite;
 }
 
-export default function SimView({ client, camera = 'overview', captureRef }: { client: FleetClient | null; camera?: CameraMode; captureRef?: { current: DoorCapture | null } }) {
+export default function SimView({ client, camera = 'overview', captureRef }: { client: FleetClient | null; camera?: CameraMode; captureRef?: { current: SimCapture | null } }) {
   const host = useRef<HTMLDivElement>(null);
   const cameraMode = useRef<CameraMode>(camera);
   cameraMode.current = camera;
@@ -108,6 +114,7 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
 
     let meshes: (THREE.Mesh | null)[] = [];
     let bodyIdx: Record<RobotId, number> = { robot_1: -1, robot_2: -1 };
+    const cabins = {} as Record<RobotId, Cabin>;
     const unsubscribe = client.subscribe({
       onStatic(geoms) {
         meshes = geoms.map((g) => {
@@ -115,7 +122,11 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
           if (m) scene.add(m);
           return m;
         });
-        bodyIdx = { robot_1: geoms.findIndex((g) => g.name === 'robot_1_body'), robot_2: geoms.findIndex((g) => g.name === 'robot_2_body') };
+        bodyIdx = { robot_1: geoms.findIndex((g) => g.name === 'robot_1_chassis'), robot_2: geoms.findIndex((g) => g.name === 'robot_2_chassis') };
+        for (const id of ['robot_1', 'robot_2'] as RobotId[]) {
+          const chassis = meshes[bodyIdx[id]];
+          if (chassis) cabins[id] = buildCabin(chassis, FRAME.w / FRAME.h, PHOTO_LAYER);
+        }
       },
       onFrame(xpos, xmat) {
         const m4 = new THREE.Matrix4();
@@ -127,15 +138,40 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
         });
         for (const id of ['robot_1', 'robot_2'] as RobotId[]) {
           const i = bodyIdx[id];
-          if (i >= 0) robotTags[id].position.set(xpos[3 * i], xpos[3 * i + 1], xpos[3 * i + 2] + 0.55);
+          if (i >= 0) robotTags[id].position.set(xpos[3 * i], xpos[3 * i + 1], xpos[3 * i + 2] + 1.0);
+          robotTags[id].visible = cameraMode.current !== id; // would cover the robot being followed
         }
       },
     });
 
     if (captureRef) {
-      captureRef.current = (robot, room) => {
-        const mesh = meshes[bodyIdx[robot]];
-        return mesh ? captureJpeg(renderer, scene, doorCamera(new THREE.Vector3().setFromMatrixPosition(mesh.matrix), room)) : null;
+      captureRef.current = {
+        door(robot, room) {
+          const mesh = meshes[bodyIdx[robot]];
+          return mesh ? captureJpeg(renderer, scene, doorCamera(new THREE.Vector3().setFromMatrixPosition(mesh.matrix), room)) : null;
+        },
+        cabin(robot) {
+          return cabins[robot] ? captureJpeg(renderer, scene, cabins[robot].camera) : null;
+        },
+        setItem(robot, kind) {
+          cabins[robot]?.setItem(kind);
+        },
+        // What a guest sees, from the cabin's frame: standing in the room's
+        // doorway at 1.5 m eye height, or stepped up and bending to reach in.
+        guestView(robot, reaching = false) {
+          const cabin = cabins[robot];
+          if (!cabin) return null;
+          const cam = new THREE.PerspectiveCamera(reaching ? 60 : 42, FRAME.w / FRAME.h, 0.05, 30);
+          cam.layers.set(PHOTO_LAYER);
+          cam.up.set(0, 0, 1);
+          if (reaching) cam.position.set(0, -0.5, 0.42);
+          else cam.position.set(0, -0.62, 1.2);
+          cam.lookAt(0, 0, reaching ? 0.08 : 0.25);
+          cabin.frame.add(cam);
+          const shot = captureJpeg(renderer, scene, cam);
+          cabin.frame.remove(cam);
+          return shot;
+        },
       };
     }
 
