@@ -15,6 +15,7 @@ import CallLogPanel, { CallFlowGraph } from '@/components/CallLogPanel.tsx';
 import EscalationsPanel from '@/components/EscalationsPanel.tsx';
 import { useRecords } from '@/components/useRecords.ts';
 import { logCall } from '@/lib/admin/client.ts';
+import { playFaultAlert } from '@/lib/alert.ts';
 import { FleetClient } from '@/lib/sim/client.ts';
 import { decide, type BrainEntry } from '@/lib/brain/client.ts';
 import { notification } from '@/lib/fleet/notify.ts';
@@ -104,6 +105,7 @@ export default function Console() {
         onError: setError,
         onEvents: (events, snapshot) => {
           for (const ev of events) {
+            if (ev.event.type === 'battery_fault') playFaultAlert();
             if (ev.event.type === 'delivered' || ev.event.type === 'arrived' || ev.event.type === 'not_collected') {
               const { taskId } = ev.event;
               const task = snapshot.tasks.find((t) => t.id === taskId);

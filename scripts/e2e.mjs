@@ -44,6 +44,9 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.addInitScript(() => {
   speechSynthesis.speak = (u) => setTimeout(() => u.onend?.(new Event('end')), 45 * u.text.length);
+  window.__tones = 0;
+  const start = OscillatorNode.prototype.start;
+  OscillatorNode.prototype.start = function (...a) { window.__tones++; return start.apply(this, a); };
 });
 
 let callId = null;
@@ -87,6 +90,8 @@ try {
   await loaded.click();
   pass('robot 1 loaded at the desk with Bin loaded');
   await see('.stage .plan', /Hand off to robot 2.*Muse Wonder/, 'battery fault: plan card shows the options and Wonder\'s pick', 90000);
+  if ((await page.evaluate(() => window.__tones)) !== 6) throw new Error('the fault should play the alert once (6 tones)');
+  pass('fault alert sounded once');
   const plan = await text('.stage .plan');
   console.log(`\n--- plan ---\n${plan}\n------------\n`);
   if (!/Charge first/.test(plan) || !/pauses hk1/.test(plan)) throw new Error('plan card is missing options or steps');
