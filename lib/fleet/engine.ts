@@ -1,7 +1,7 @@
 // The fleet task engine: task queue, robot phases, battery, and execution of
 // brain decisions. Pure logic: physics comes in through SimPort, time through
 // the clock, so tests drive it with a kinematic fake.
-import { route, waypoints, nearestNode, pursue, NODES, SPEED, doorFacingYaw, turnTo } from './nav.ts';
+import { route, waypoints, nearestNode, pursue, NODES, SPEED, FLOOR_VERSION, DOCK_YAW, doorFacingYaw, turnTo } from './nav.ts';
 import { optionsFor, dockOf, doorOf, distance, LOAD_S, GUEST_DWELL_S, COLLECT_TIMEOUT_S, HK_DWELL_S, CHARGE_S, DRAIN_PER_M } from './options.ts';
 import { ROBOT_IDS } from './types.ts';
 import type { BrainDecision, FleetEvent, FleetSnapshot, LineItem, Robot, RobotId, SimPort, Task, TaskStatus } from './types.ts';
@@ -9,9 +9,10 @@ import type { FleetApi, TaskView } from '../agent/tools.ts';
 
 const START_BATTERY: Record<RobotId, number> = { robot_1: 64, robot_2: 82 };
 const FAULT_RADIUS = 0.5; // m around fault_point where demo mode fires the fault
-const YIELD_DIST = 0.8; // m: stop if another robot is this close ahead
-const YIELD_CONE = 0.9; // rad either side of the heading that counts as "ahead"
-const PICKUP_CLEAR = 0.9; // m: a robot this close to the pickup still occupies it
+const YIELD_DIST = 0.6; // m: stop if another robot is this close ahead
+const YIELD_CONE = 1.0; // rad either side of the heading that counts as "ahead"
+const PASS_CLEAR = 0.36; // m: side-on distance at which two robots clear each other
+const PICKUP_CLEAR = 0.45; // m: a robot this close to the pickup still occupies it
 const MOVING = new Set(['to_pickup', 'to_room', 'returning']);
 
 export type ApplyResult = { ok: true } | { ok: false; error: string };
@@ -46,16 +47,16 @@ export class Fleet implements FleetApi {
   }
 
   snapshot(): FleetSnapshot {
-    return structuredClone({ now: this.clock(), seq: this.seq, faultFired: this.faultFired, robots: this.robots, tasks: this.tasks });
+    return structuredClone({ now: this.clock(), seq: this.seq, faultFired: this.faultFired, floor: FLOOR_VERSION, robots: this.robots, tasks: this.tasks });
   }
 
   drain(): FleetEvent[] {
     return this.events.splice(0);
   }
 
-  // The demo opening: robot 2 is already out on a housekeeping drop to 806.
+  // The demo opening: robot 2 is already out on a housekeeping drop to 1205.
   seedDemo(): void {
-    const hk = this.newTask({ kind: 'housekeeping', priority: 'low', item: 'linen', qty: 1, room: '806', callId: null });
+    const hk = this.newTask({ kind: 'housekeeping', priority: 'low', item: 'linen', qty: 1, room: '1205', callId: null });
     const r = this.robot('robot_2');
     this.start(r, hk, 'assigned', Math.round(distance(r.pose, doorOf(hk.room), ['pickup']) / SPEED + LOAD_S));
   }
@@ -182,7 +183,8 @@ export class Fleet implements FleetApi {
         sim.drive(r.id, c.v, c.w);
         if (c.done) this.arrive(r);
       } else {
-        sim.drive(r.id, 0, atStop ? turnTo(p.yaw, doorFacingYaw(p.y)) : 0);
+        const parked = r.phase === 'docked' || r.phase === 'charging';
+        sim.drive(r.id, 0, atStop ? turnTo(p.yaw, doorFacingYaw(p)) : parked ? turnTo(p.yaw, DOCK_YAW) : 0);
         if (r.until && now >= r.until) this.timerDone(r);
       }
       this.maybeDemoFault(r);
@@ -247,7 +249,7 @@ export class Fleet implements FleetApi {
       if (o.id === r.id) continue;
       if (r.phase === 'to_pickup' && r.wp >= r.path.length - 2) {
         const occupied = o.phase === 'loading'
-          || (o.phase === 'to_pickup' && o.wp >= o.path.length - 2 && toPickup(o) < toPickup(r))
+          || (o.phase === 'to_pickup' && o.wp >= o.path.length - 2 && (toPickup(o) < toPickup(r) || (toPickup(o) === toPickup(r) && o.id < r.id)))
           || (o.phase !== 'to_pickup' && toPickup(o) < PICKUP_CLEAR);
         if (occupied) return true;
       }
@@ -256,12 +258,23 @@ export class Fleet implements FleetApi {
     return false;
   }
 
-  // Is o close and roughly ahead of r?
+  // Is o close and roughly where r is going? (Its next waypoint, not its
+  // heading: a robot turned towards the desk isn't driving that way.)
   blocks(r: Robot, o: Robot): boolean {
     const dx = o.pose.x - r.pose.x;
     const dy = o.pose.y - r.pose.y;
     if (Math.hypot(dx, dy) > YIELD_DIST) return false;
-    const ang = Math.atan2(dy, dx) - r.pose.yaw;
+    const to = r.path[r.wp];
+    if (!to) return false;
+    const heading = Math.atan2(to.y - r.pose.y, to.x - r.pose.x);
+    // A parked robot only blocks if r would actually hit it; waiting for one
+    // beside the route would wait forever.
+    if (!MOVING.has(o.phase)) {
+      const ahead = dx * Math.cos(heading) + dy * Math.sin(heading);
+      const beside = Math.abs(-dx * Math.sin(heading) + dy * Math.cos(heading));
+      return ahead > 0 && beside < PASS_CLEAR;
+    }
+    const ang = Math.atan2(dy, dx) - heading;
     return Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang))) < YIELD_CONE;
   }
 
@@ -272,7 +285,7 @@ export class Fleet implements FleetApi {
     // Mid-corridor, or a metre short of the door for rooms before that point.
     const [fx, fy] = NODES.fault_point;
     const at = Math.min(fx, NODES[doorOf(t.room)][0] - 1);
-    if (Math.hypot(r.pose.x - at, r.pose.y - fy) < FAULT_RADIUS) {
+    if (r.pose.x > 0 && Math.hypot(r.pose.x - at, r.pose.y - fy) < FAULT_RADIUS) {
       this.faultFired = this.injectBatteryFault(r.id);
     }
   }

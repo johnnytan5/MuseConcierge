@@ -47,6 +47,7 @@ export type FleetSnapshot = {
   now: number;
   seq: number;
   faultFired: boolean; // demo mode fires the battery fault once per reset
+  floor?: number; // FLOOR_VERSION this run was saved on
   robots: Robot[];
   tasks: Task[];
 };

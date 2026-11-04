@@ -4,7 +4,7 @@ import { notification } from './notify.ts';
 import type { Task } from './types.ts';
 
 const guest = { id: 't1', kind: 'guest', room: '804' } as Task;
-const hk = { id: 'hk1', kind: 'housekeeping', room: '806' } as Task;
+const hk = { id: 'hk1', kind: 'housekeeping', room: '1205' } as Task;
 
 test('assign → On the way with minutes rounded, at least 1', () => {
   assert.deepEqual(notification({ type: 'task_created', taskId: 't1' }, { assign: 't1', to: 'robot_1', reason: '' }, guest, 26), { room: '804', text: 'On the way, about 1 min' });

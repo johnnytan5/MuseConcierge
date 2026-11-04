@@ -3,7 +3,7 @@ import type { BrainDecision, FleetEvent, FleetSnapshot, LineItem, Option, RobotI
 import type { TaskView } from '../agent/tools.ts';
 import type { ApplyResult } from '../fleet/engine.ts';
 
-export type GeomInfo = { name: string; type: number; size: number[]; rgba: number[] };
+export type GeomInfo = { name: string; type: number; size: number[]; pos: number[]; rgba: number[] };
 
 export type Request =
   | { kind: 'createTask'; args: { item: string; qty: number; also?: LineItem[]; room: string; callId: string } }

@@ -34,6 +34,7 @@ async function boot() {
       name: mj.mj_id2name(model, mj.mjtObj.mjOBJ_GEOM.value, i) ?? '',
       type: model.geom_type[i],
       size: Array.from(model.geom_size.subarray(3 * i, 3 * i + 3)),
+      pos: Array.from(model.geom_pos.subarray(3 * i, 3 * i + 3)),
       rgba: Array.from(model.geom_rgba.subarray(4 * i, 4 * i + 4)),
     });
   }

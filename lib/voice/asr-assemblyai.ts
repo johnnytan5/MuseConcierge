@@ -17,6 +17,7 @@ export async function connectAssemblyAI(keywords: string[], h: AsrHandlers, call
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${qs}`);
     let ready = false;
+    let closing = false; // we hung up; the socket closing after that is not an error
 
     ws.onmessage = (ev) => {
       const m = JSON.parse(String(ev.data));
@@ -25,6 +26,7 @@ export async function connectAssemblyAI(keywords: string[], h: AsrHandlers, call
         resolve({
           send: (frame) => { if (ws.readyState === WebSocket.OPEN) ws.send(frame); },
           close: () => {
+            closing = true;
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'Terminate' }));
             setTimeout(() => ws.close(), 500);
           },
@@ -39,6 +41,6 @@ export async function connectAssemblyAI(keywords: string[], h: AsrHandlers, call
     };
 
     ws.onerror = () => { if (!ready) reject(new Error('cannot reach AssemblyAI')); };
-    ws.onclose = (ev) => { if (ready && ev.code !== 1000) h.onError(`transcriber closed (${ev.code} ${ev.reason})`); };
+    ws.onclose = (ev) => { if (ready && !closing && ev.code !== 1000) h.onError(`transcriber closed (${ev.code} ${ev.reason})`); };
   });
 }

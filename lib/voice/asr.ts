@@ -1,6 +1,7 @@
 // Mic → 16 kHz PCM16 frames → the chosen speech-to-text provider. Callers
 // only see onPartial/onFinal, never which provider is in use.
 import type { Gate } from './gate.ts';
+import { ROOMS } from '../hotel.ts';
 import { connectMeta } from './asr-meta.ts';
 import { connectAssemblyAI } from './asr-assemblyai.ts';
 
@@ -13,7 +14,7 @@ export type AsrConnection = { send(frame: ArrayBuffer): void; close(): void };
 
 export const KEYWORDS = [
   // Phrases, not bare numbers: Muse hears "room eight..." as "roommate" otherwise.
-  ...['801', '802', '803', '804', '805', '806'].map((r) => `room ${r}`),
+  ...ROOMS.map((r) => `room ${r}`),
   'towel', 'water', 'toothbrush', 'pillow', 'slippers',
 ];
 

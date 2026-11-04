@@ -28,20 +28,28 @@ const pick = (taskId: string, opts: Option[]): BrainDecision | null => {
 const DT = 1 / 60;
 const log = (m: string) => console.log(`${(clock.now / 1000).toFixed(1).padStart(6)}s  ${m}`);
 let t1 = '';
+let minGap = Infinity;
+let minAt = '';
+let backHome = false; // robot 2 reached its dock after the delivery
 for (let i = 0; i < 60 * 200; i++) {
   if (i === 60 * 20) { t1 = fleet.createTask({ item: 'towel', qty: 2, room: '804', callId: 'c' }).task_id; log(`order ${t1}`); }
   sim.step(DT);
   clock.now += DT * 1000;
   fleet.tick(DT, sim);
+  const [p, q] = fleet.robots.map((r) => r.pose);
+  const gap = Math.hypot(p.x - q.x, p.y - q.y);
+  if (gap < minGap) { minGap = gap; minAt = `${(clock.now / 1000).toFixed(1)}s (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) ${fleet.robots[0].phase} / (${q.x.toFixed(2)}, ${q.y.toFixed(2)}) ${fleet.robots[1].phase}`; }
   for (const e of fleet.drain()) {
+    if (e.type === 'robot_idle' && e.robotId === 'robot_2' && t1) backHome = true;
     const ctx = decisionContext(e, fleet.snapshot());
     const d = ctx && pick(ctx.taskId, ctx.options);
     log(`${e.type} ${'robotId' in e ? e.robotId : ''} ${d ? '→ ' + JSON.stringify(d) + ' ' + JSON.stringify(fleet.apply(d)) : ''}`);
   }
-  if (t1 && fleet.tasks.find((t) => t.id === t1)?.status === 'delivered' && fleet.robots[1].phase === 'returning') break;
+  if (backHome) break;
 }
 const t = fleet.tasks.find((x) => x.id === t1)!;
-console.log(t.status === 'delivered' && t.robotId === 'robot_2' ? 'OK robot_2 delivered after handoff' : `FAIL ${JSON.stringify(t)}`);
+console.log('closest approach', minGap.toFixed(2), 'm at', minAt);
+console.log(t.status === 'delivered' && t.robotId === 'robot_2' && backHome ? 'OK robot_2 delivered after handoff and got back to its dock' : `FAIL ${JSON.stringify(t)} robot_2 ${fleet.robots[1].phase}`);
 for (const r of fleet.robots) console.log(r.id, r.phase, Math.round(r.battery) + '%', r.pose.x.toFixed(2), r.pose.y.toFixed(2));
 // Upright check: a robot tipped by a collision has a body z axis far from vertical.
 for (const r of ['robot_1', 'robot_2']) {

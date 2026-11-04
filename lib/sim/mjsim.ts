@@ -12,6 +12,9 @@ const WHEEL_GAIN = 1.0;
 const DOOR_TOP_OPEN = 0.16; // m of slide travel, floor.xml door panels
 const DOOR_BOTTOM_OPEN = 0.04;
 const BASE_Z = 0.065; // free-joint height when resting on the floor
+// A tall robot rocks if its wheels jump to speed, so speed changes are ramped.
+const MAX_ACCEL = 0.5; // m/s^2
+const MAX_TURN_ACCEL = 2.5; // rad/s^2
 
 // The subset of the @mujoco/mujoco module this file uses.
 type Mujoco = {
@@ -30,6 +33,8 @@ export class MjSim implements SimPort {
   model: Model;
   data: Data;
   ids: Record<RobotId, Ids>;
+  wanted: Record<string, { v: number; w: number }> = {};
+  speed: Record<string, { v: number; w: number }> = {};
 
   constructor(mj: Mujoco, model: Model, data: Data) {
     this.mj = mj;
@@ -54,6 +59,10 @@ export class MjSim implements SimPort {
       };
     }
     this.ids = ids;
+    for (const r of ROBOT_IDS) {
+      this.wanted[r] = { v: 0, w: 0 };
+      this.speed[r] = { v: 0, w: 0 };
+    }
   }
 
   pose(r: RobotId): Pose {
@@ -63,9 +72,20 @@ export class MjSim implements SimPort {
   }
 
   drive(r: RobotId, v: number, w: number): void {
-    const i = this.ids[r];
-    this.data.ctrl[i.wl] = ((v - (w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
-    this.data.ctrl[i.wr] = ((v + (w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
+    this.wanted[r] = { v, w };
+  }
+
+  // One physics step's worth of the ramp from the current speed to the wanted one.
+  applyDrive(dt: number): void {
+    for (const r of ROBOT_IDS) {
+      const i = this.ids[r];
+      const now = this.speed[r];
+      const toward = (from: number, to: number, step: number) => from + Math.max(-step, Math.min(step, to - from));
+      now.v = toward(now.v, this.wanted[r].v, MAX_ACCEL * dt);
+      now.w = toward(now.w, this.wanted[r].w, MAX_TURN_ACCEL * dt);
+      this.data.ctrl[i.wl] = ((now.v - (now.w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
+      this.data.ctrl[i.wr] = ((now.v + (now.w * TRACK) / 2) / WHEEL_R) * WHEEL_GAIN;
+    }
   }
 
   lid(r: RobotId, open: boolean): void {
@@ -75,6 +95,8 @@ export class MjSim implements SimPort {
 
   teleport(r: RobotId, p: Pose): void {
     const { qpos, dof } = this.ids[r];
+    this.wanted[r] = { v: 0, w: 0 };
+    this.speed[r] = { v: 0, w: 0 };
     this.data.qpos.set([p.x, p.y, BASE_Z, Math.cos(p.yaw / 2), 0, 0, Math.sin(p.yaw / 2)], qpos);
     this.data.qvel.fill(0, dof, dof + 6);
     this.mj.mj_forward(this.model, this.data);
@@ -83,6 +105,9 @@ export class MjSim implements SimPort {
   // Advance physics by `seconds` of sim time.
   step(seconds: number): void {
     const n = Math.max(1, Math.round(seconds / this.model.opt.timestep));
-    for (let i = 0; i < n; i++) this.mj.mj_step(this.model, this.data);
+    for (let i = 0; i < n; i++) {
+      this.applyDrive(this.model.opt.timestep);
+      this.mj.mj_step(this.model, this.data);
+    }
   }
 }

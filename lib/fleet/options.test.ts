@@ -16,9 +16,9 @@ const snap = (robots: Robot[], tasks: Task[]): FleetSnapshot => ({ now: 0, seq: 
 // The demo moment: robot 1 faults at fault_point carrying t1; robot 2 is on housekeeping.
 const faulted = () => snap(
   [robot('robot_1', { phase: 'halted', taskId: 't1', battery: 9, fault: true, pose: at('fault_point') }),
-   robot('robot_2', { phase: 'at_room', taskId: 'hk1', battery: 82, pose: at('door_806') })],
+   robot('robot_2', { phase: 'at_room', taskId: 'hk1', battery: 82, pose: at('door_1205') })],
   [task('t1', { status: 'en_route', robotId: 'robot_1' }),
-   task('hk1', { kind: 'housekeeping', priority: 'low', item: 'linen', room: '806', callId: null, status: 'assigned', robotId: 'robot_2' })],
+   task('hk1', { kind: 'housekeeping', priority: 'low', item: 'linen', room: '1205', callId: null, status: 'assigned', robotId: 'robot_2' })],
 );
 
 test('battery 9% → continue infeasible with a reason', () => {

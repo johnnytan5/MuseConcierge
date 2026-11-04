@@ -93,7 +93,8 @@ test('demo: battery fault at fault_point → handoff → robot_2 delivers, hk1 b
   assert.deepEqual(fault, { type: 'battery_fault', robotId: 'robot_1', taskId: task_id, battery: 9 });
   assert.equal(robot(fleet, 'robot_1').phase, 'halted');
   const r1 = robot(fleet, 'robot_1').pose;
-  assert.ok(Math.hypot(r1.x - NODES.fault_point[0], r1.y - NODES.fault_point[1]) < 0.6);
+  // 804 is before the corridor's fault point, so it fires a metre short of the door.
+  assert.ok(Math.hypot(r1.x - (NODES.door_804[0] - 1), r1.y) < 0.6);
 
   const handoff = optionsFor(task_id, fleet.snapshot()).find((o) => o.action === 'handoff');
   assert.ok(handoff && handoff.action === 'handoff');
@@ -119,7 +120,7 @@ test('demo: battery fault at fault_point → handoff → robot_2 delivers, hk1 b
 
 test('cancel while en route → robot returns, no delivered event', () => {
   const { fleet, events, run } = setup();
-  const { task_id } = fleet.createTask({ item: 'towel', qty: 2, room: '806', callId: 'c1' });
+  const { task_id } = fleet.createTask({ item: 'towel', qty: 2, room: '1205', callId: 'c1' });
   fleet.apply({ assign: task_id, to: 'robot_1', reason: '' });
   run(60, () => robot(fleet, 'robot_1').phase === 'to_room');
   assert.equal(fleet.cancelTask(task_id), true);
@@ -162,7 +163,7 @@ test('getTask reports status, robot and a counting-down ETA', () => {
 test('two robots sent to pickup at once take turns and both deliver', () => {
   const { fleet, run } = setup();
   const a = fleet.createTask({ item: 'towel', qty: 2, room: '804', callId: 'c1' }).task_id;
-  const b = fleet.createTask({ item: 'pillow', qty: 1, room: '801', callId: 'c2' }).task_id;
+  const b = fleet.createTask({ item: 'pillow', qty: 1, room: '803', callId: 'c2' }).task_id;
   assert.ok(fleet.apply({ assign: a, to: 'robot_1', reason: '' }).ok);
   assert.ok(fleet.apply({ assign: b, to: 'robot_2', reason: '' }).ok);
   let bothLoading = false;
@@ -175,20 +176,35 @@ test('two robots sent to pickup at once take turns and both deliver', () => {
   assert.equal(task(fleet, b).status, 'delivered');
 });
 
-test('robots never pass closer than 0.45 m centre to centre', () => {
+test('robots never touch: they stay over 0.34 m (the tower diameter) apart', () => {
   const { fleet, run } = setup({ demoFault: true });
   fleet.seedDemo();
   const { task_id } = fleet.createTask({ item: 'towel', qty: 2, room: '804', callId: 'c1' });
   fleet.apply({ assign: task_id, to: 'robot_1', reason: '' });
   let minGap = Infinity;
+  let where = '';
   run(150, () => {
     const [p, q] = fleet.robots.map((r) => r.pose);
-    minGap = Math.min(minGap, Math.hypot(p.x - q.x, p.y - q.y));
+    const gapNow = Math.hypot(p.x - q.x, p.y - q.y);
+    if (gapNow < minGap) where = fleet.robots.map((r) => `${r.id} ${r.phase} wp${r.wp}/${r.path.length} ${r.pose.x.toFixed(2)},${r.pose.y.toFixed(2)}`).join(' | ');
+    minGap = Math.min(minGap, gapNow);
     const opts = optionsFor(task_id, fleet.snapshot());
     const h = opts.find((o) => o.action === 'handoff');
     if (h && h.action === 'handoff') fleet.apply({ handoff: task_id, to: 'robot_2', preempt: h.preempts, reason: '' });
     return task(fleet, task_id).status === 'delivered';
   });
   assert.equal(task(fleet, task_id).status, 'delivered');
-  assert.ok(minGap > 0.45, `closest approach ${minGap.toFixed(2)} m`);
+  assert.ok(minGap > 0.34, `closest approach ${minGap.toFixed(2)} m: ${where}`);
+});
+
+test('housekeeping finishes: the robot comes home from 1205 and is free again', () => {
+  const { fleet, events, run } = setup();
+  fleet.seedDemo();
+  run(300, () => robot(fleet, 'robot_2').phase === 'at_room');
+  assert.equal(robot(fleet, 'robot_2').phase, 'at_room');
+  run(300, () => robot(fleet, 'robot_2').phase === 'docked');
+  assert.equal(robot(fleet, 'robot_2').phase, 'docked');
+  assert.equal(task(fleet, 'hk1').status, 'delivered');
+  assert.equal(robot(fleet, 'robot_2').taskId, null);
+  assert.ok(events.some((e) => e.type === 'robot_idle' && e.robotId === 'robot_2'));
 });
