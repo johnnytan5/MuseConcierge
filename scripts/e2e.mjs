@@ -2,7 +2,8 @@
 // guest call goes in through Chrome's fake microphone, then Muse Voice
 // Transcribe → Muse Spark → fleet → Muse Wonder → battery fault → handoff →
 // door and cabin photos → SAM 3.1 → "Mimic collection" → SAM 3.1 → delivered.
-// Speech output is stubbed (headless Chrome has no voices). Needs macOS Chrome.
+// The agent's voice is real AssemblyAI TTS; the browser fallback is only
+// counted, and must stay at zero. Needs macOS Chrome.
 //
 //   npm run dev                         # in another terminal
 //   node --env-file=.env scripts/e2e.mjs [screenshot-dir]
@@ -43,14 +44,17 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.addInitScript(() => {
-  speechSynthesis.speak = (u) => setTimeout(() => u.onend?.(new Event('end')), 45 * u.text.length);
+  window.__browserVoice = 0;
+  speechSynthesis.speak = (u) => { window.__browserVoice++; setTimeout(() => u.onend?.(new Event('end')), 45 * u.text.length); };
   window.__tones = 0;
   const start = OscillatorNode.prototype.start;
   OscillatorNode.prototype.start = function (...a) { window.__tones++; return start.apply(this, a); };
 });
 
 let callId = null;
+let ttsAudio = 0;
 page.on('response', async (r) => {
+  if (r.url().endsWith('/api/tts') && r.ok()) ttsAudio++;
   if (r.url().endsWith('/api/call/start')) callId = (await r.json().catch(() => ({}))).callId ?? callId;
 });
 
@@ -84,6 +88,9 @@ try {
   await see('.tasks', /towel \+ .*uber|uber.* \+ .*towel/, 'one task carries the towel and the Uber Eats order');
   await see('.transcript', /Call ended/, 'call ended by the agent', 30000);
 
+  if ((await page.evaluate(() => window.__browserVoice)) !== 0) throw new Error('the browser voice was used: AssemblyAI TTS failed');
+  if (ttsAudio < 2) throw new Error(`expected spoken replies through /api/tts, got ${ttsAudio}`);
+  pass(`agent spoke ${ttsAudio} lines with AssemblyAI TTS`);
   await see('.brainlog', /New order t1.*Muse Wonder/, 'Muse Wonder assigned the order');
   const loaded = page.getByRole('button', { name: 'Bin loaded — send it' });
   await loaded.waitFor({ timeout: 45000 });

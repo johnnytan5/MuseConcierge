@@ -59,7 +59,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children, flo
       const greeting = `Room service for room ${room}, how can I help?`;
       const call = new CallSession(started.callId, fleet, inv.items, {
         room,
-        onSay: (t) => speak(t, gate),
+        onSay: (t) => speak(t, gate, callId),
         onEnd: () => { stop(); add({ who: 'system', text: 'Call ended.' }); },
         escalate: (reason, room) => escalate(callId, reason, room),
         onLog: (e: CallLog) => {
@@ -99,7 +99,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children, flo
       setLive(true);
       add({ who: 'agent', text: greeting });
       void logCall(callId, { turn: { role: 'agent', text: greeting } });
-      await speak(greeting, gate);
+      await speak(greeting, gate, callId);
     } catch (e) {
       stop();
       add({ who: 'system', text: `could not start: ${e instanceof Error ? e.message : e}` });
