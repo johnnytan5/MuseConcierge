@@ -1,16 +1,17 @@
 // Messages between the page and lib/sim/sim.worker.ts.
-import type { BrainDecision, FleetEvent, FleetSnapshot, Option, RobotId } from '../fleet/types.ts';
+import type { BrainDecision, FleetEvent, FleetSnapshot, LineItem, Option, RobotId } from '../fleet/types.ts';
 import type { TaskView } from '../agent/tools.ts';
 import type { ApplyResult } from '../fleet/engine.ts';
 
 export type GeomInfo = { name: string; type: number; size: number[]; rgba: number[] };
 
 export type Request =
-  | { kind: 'createTask'; args: { item: string; qty: number; room: string; callId: string } }
+  | { kind: 'createTask'; args: { item: string; qty: number; also?: LineItem[]; room: string; callId: string } }
   | { kind: 'getTask'; id: string }
   | { kind: 'cancelTask'; id: string }
   | { kind: 'apply'; decision: BrainDecision }
   | { kind: 'fault'; robotId: RobotId }
+  | { kind: 'collect'; taskId: string }
   | { kind: 'reset' }
   | { kind: 'snapshot' };
 

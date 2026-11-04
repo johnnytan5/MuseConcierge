@@ -2,9 +2,9 @@
 // brain decisions. Pure logic: physics comes in through SimPort, time through
 // the clock, so tests drive it with a kinematic fake.
 import { route, waypoints, nearestNode, pursue, NODES, SPEED, doorFacingYaw, turnTo } from './nav.ts';
-import { optionsFor, dockOf, doorOf, distance, LOAD_S, GUEST_DWELL_S, HK_DWELL_S, CHARGE_S, DRAIN_PER_M } from './options.ts';
+import { optionsFor, dockOf, doorOf, distance, LOAD_S, GUEST_DWELL_S, COLLECT_TIMEOUT_S, HK_DWELL_S, CHARGE_S, DRAIN_PER_M } from './options.ts';
 import { ROBOT_IDS } from './types.ts';
-import type { BrainDecision, FleetEvent, FleetSnapshot, Robot, RobotId, SimPort, Task, TaskStatus } from './types.ts';
+import type { BrainDecision, FleetEvent, FleetSnapshot, LineItem, Robot, RobotId, SimPort, Task, TaskStatus } from './types.ts';
 import type { FleetApi, TaskView } from '../agent/tools.ts';
 
 const START_BATTERY: Record<RobotId, number> = { robot_1: 64, robot_2: 82 };
@@ -19,22 +19,24 @@ export type ApplyResult = { ok: true } | { ok: false; error: string };
 export class Fleet implements FleetApi {
   clock: () => number;
   demoFault: boolean;
+  collection: boolean; // guest orders wait at the door for collect(); off, they complete on arrival
   robots: Robot[];
   tasks: Task[] = [];
   seq = 0;
   faultFired = false;
   events: FleetEvent[] = [];
 
-  constructor(clock: () => number, opts: { demoFault?: boolean } = {}) {
+  constructor(clock: () => number, opts: { demoFault?: boolean; collection?: boolean } = {}) {
     this.clock = clock;
     this.demoFault = !!opts.demoFault;
+    this.collection = !!opts.collection;
     this.robots = ROBOT_IDS.map((id) => {
       const [x, y] = NODES[dockOf(id)];
       return { id, phase: 'docked', taskId: null, battery: START_BATTERY[id], fault: false, pose: { x, y, yaw: 0 }, path: [], wp: 0, until: 0 };
     });
   }
 
-  static restore(s: FleetSnapshot, clock: () => number, opts: { demoFault?: boolean } = {}): Fleet {
+  static restore(s: FleetSnapshot, clock: () => number, opts: { demoFault?: boolean; collection?: boolean } = {}): Fleet {
     const f = new Fleet(clock, opts);
     f.seq = s.seq;
     f.faultFired = s.faultFired;
@@ -60,7 +62,7 @@ export class Fleet implements FleetApi {
 
   // ---- FleetApi (call-agent tools) -------------------------------------
 
-  createTask(i: { item: string; qty: number; room: string; callId: string }): { task_id: string; eta_seconds: number } {
+  createTask(i: { item: string; qty: number; also?: LineItem[]; room: string; callId: string }): { task_id: string; eta_seconds: number } {
     const t = this.newTask({ kind: 'guest', priority: 'high', ...i });
     this.events.push({ type: 'task_created', taskId: t.id });
     // Quote the best case now; the brain's decision sets the real ETA.
@@ -72,14 +74,14 @@ export class Fleet implements FleetApi {
     const t = this.tasks.find((x) => x.id === id);
     if (!t) return null;
     return {
-      task_id: t.id, status: t.status, room: t.room, item: t.item, qty: t.qty, robot: t.robotId,
-      eta_seconds: t.etaAt && t.status !== 'delivered' ? Math.max(0, Math.round((t.etaAt - this.clock()) / 1000)) : 0,
+      task_id: t.id, status: t.status, room: t.room, item: t.item, qty: t.qty, also: t.also, robot: t.robotId,
+      eta_seconds: t.etaAt && t.status !== 'delivered' && t.status !== 'at_door' ? Math.max(0, Math.round((t.etaAt - this.clock()) / 1000)) : 0,
     };
   }
 
   cancelTask(id: string): boolean {
     const t = this.tasks.find((x) => x.id === id);
-    if (!t || t.status === 'delivered' || t.status === 'cancelled') return false;
+    if (!t || t.status === 'delivered' || t.status === 'cancelled' || t.status === 'not_collected') return false;
     this.setStatus(t, 'cancelled');
     const r = t.robotId ? this.robot(t.robotId) : null;
     if (r && r.taskId === t.id) {
@@ -141,6 +143,16 @@ export class Fleet implements FleetApi {
     return { ok: true };
   }
 
+  // The guest took their items: the robot closes up and leaves after a moment.
+  collect(taskId: string): boolean {
+    const t = this.tasks.find((x) => x.id === taskId);
+    const r = t?.robotId ? this.robot(t.robotId) : null;
+    if (!t || !r || t.status !== 'at_door' || r.taskId !== t.id) return false;
+    this.deliver(t, r);
+    r.until = this.clock() + GUEST_DWELL_S * 1000;
+    return true;
+  }
+
   injectBatteryFault(id: RobotId, to = 9): boolean {
     const r = this.robot(id);
     if (!r.taskId || r.fault || !(MOVING.has(r.phase) || r.phase === 'loading')) return false;
@@ -184,8 +196,16 @@ export class Fleet implements FleetApi {
     if (r.phase === 'to_pickup') {
       this.wait(r, 'loading', LOAD_S);
     } else if (r.phase === 'to_room' && t) {
-      this.wait(r, 'at_room', t.kind === 'guest' ? GUEST_DWELL_S : HK_DWELL_S);
-      if (t.kind === 'guest') this.deliver(t, r);
+      if (t.kind === 'housekeeping') this.wait(r, 'at_room', HK_DWELL_S);
+      else if (!this.collection) {
+        this.wait(r, 'at_room', GUEST_DWELL_S);
+        this.deliver(t, r);
+      } else {
+        this.wait(r, 'at_room', COLLECT_TIMEOUT_S);
+        t.arrivedAt = this.clock();
+        this.setStatus(t, 'at_door');
+        this.events.push({ type: 'arrived', taskId: t.id, robotId: r.id });
+      }
     } else if (r.phase === 'returning') {
       if (r.fault) this.wait(r, 'charging', CHARGE_S);
       else this.dock(r);
@@ -201,6 +221,10 @@ export class Fleet implements FleetApi {
       this.setPath(r, doorOf(t.room));
     } else if (r.phase === 'at_room') {
       if (t && t.kind === 'housekeeping') this.deliver(t, r);
+      if (t?.status === 'at_door') {
+        this.setStatus(t, 'not_collected');
+        this.events.push({ type: 'not_collected', taskId: t.id, robotId: r.id });
+      }
       r.taskId = null;
       this.goHome(r);
     } else if (r.phase === 'charging') {
@@ -244,8 +268,11 @@ export class Fleet implements FleetApi {
   maybeDemoFault(r: Robot): void {
     if (!this.demoFault || this.faultFired || r.id !== 'robot_1' || r.phase !== 'to_room') return;
     const t = this.tasks.find((x) => x.id === r.taskId);
+    if (t?.kind !== 'guest') return;
+    // Mid-corridor, or a metre short of the door for rooms before that point.
     const [fx, fy] = NODES.fault_point;
-    if (t?.kind === 'guest' && Math.hypot(r.pose.x - fx, r.pose.y - fy) < FAULT_RADIUS) {
+    const at = Math.min(fx, NODES[doorOf(t.room)][0] - 1);
+    if (Math.hypot(r.pose.x - at, r.pose.y - fy) < FAULT_RADIUS) {
       this.faultFired = this.injectBatteryFault(r.id);
     }
   }
@@ -292,7 +319,7 @@ export class Fleet implements FleetApi {
     t.history.push({ at: this.clock(), status, robotId: t.robotId });
   }
 
-  newTask(i: Pick<Task, 'kind' | 'priority' | 'item' | 'qty' | 'room' | 'callId'>): Task {
+  newTask(i: Pick<Task, 'kind' | 'priority' | 'item' | 'qty' | 'also' | 'room' | 'callId'>): Task {
     // t1, t2… for guest orders and hk1, hk2… for housekeeping read better on screen.
     const prefix = i.kind === 'guest' ? 't' : 'hk';
     this.seq++;

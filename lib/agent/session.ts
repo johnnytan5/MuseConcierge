@@ -59,6 +59,7 @@ export class CallSession {
     this.onLog({ kind: 'guest', text });
     this.messages.push({ role: 'user', content: text });
     let hangUp = false;
+    let placed = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const { message, ms } = await this.complete();
@@ -70,7 +71,12 @@ export class CallSession {
         // while the agent is still talking.
         this.speech = this.speech.then(() => this.onSay(line));
       }
-      if (!message.tool_calls?.length) break;
+      if (!message.tool_calls?.length) {
+        // Spark often confirms the order and stops without calling end_call.
+        // Once the order is placed and confirmed, the call is over regardless.
+        hangUp = placed && !!message.content?.trim();
+        break;
+      }
       for (const call of message.tool_calls) {
         let args: unknown = {};
         try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* the tool reports bad args */ }
@@ -78,6 +84,7 @@ export class CallSession {
         this.onLog({ kind: 'tool', name: call.function.name, args, result, ms });
         this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         if (call.function.name === 'end_call') hangUp = true;
+        if (call.function.name === 'create_task' && !('error' in result)) placed = true;
       }
       if (hangUp) break;
     }

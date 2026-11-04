@@ -21,7 +21,9 @@ export type Robot = {
   until: number; // clock ms when a timed phase (loading, at_room, charging) ends
 };
 
-export type TaskStatus = 'queued' | 'assigned' | 'en_route' | 'reassigned' | 'delivered' | 'cancelled';
+export type TaskStatus = 'queued' | 'assigned' | 'en_route' | 'reassigned' | 'at_door' | 'delivered' | 'not_collected' | 'cancelled';
+
+export type LineItem = { item: string; qty: number };
 
 export type Task = {
   id: string;
@@ -29,12 +31,14 @@ export type Task = {
   priority: 'high' | 'low';
   item: string;
   qty: number;
+  also?: LineItem[]; // more items for the same room, in the same cabin
   room: string;
   callId: string | null;
   status: TaskStatus;
   robotId: RobotId | null;
   etaAt: number | null; // clock ms the item is expected at the door
   createdAt: number;
+  arrivedAt?: number; // reached the door; deliveredAt is when the guest collected
   deliveredAt: number | null;
   history: { at: number; status: string; robotId: RobotId | null }[];
 };
@@ -51,7 +55,9 @@ export type FleetEvent =
   | { type: 'task_created'; taskId: string }
   | { type: 'battery_fault'; robotId: RobotId; taskId: string; battery: number }
   | { type: 'robot_idle'; robotId: RobotId }
-  | { type: 'delivered'; taskId: string; robotId: RobotId };
+  | { type: 'arrived'; taskId: string; robotId: RobotId }
+  | { type: 'delivered'; taskId: string; robotId: RobotId }
+  | { type: 'not_collected'; taskId: string; robotId: RobotId };
 
 // What the engine offers the brain. ETAs are the engine's, never the model's.
 export type Option =
@@ -74,3 +80,5 @@ export interface SimPort {
   lid(r: RobotId, open: boolean): void;
   teleport(r: RobotId, p: Pose): void;
 }
+
+export const lineItems = (t: Pick<Task, 'item' | 'qty' | 'also'>): LineItem[] => [{ item: t.item, qty: t.qty }, ...(t.also ?? [])];

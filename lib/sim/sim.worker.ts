@@ -16,6 +16,7 @@ const post = (m: FromWorker, transfer: Transferable[] = []) => (self as unknown 
 let fleet: Fleet;
 let sim: MjSim;
 let demo = false;
+const opts = () => ({ demoFault: demo, collection: true });
 const ready = boot();
 
 async function boot() {
@@ -51,9 +52,10 @@ function handle(req: Request): Reply {
     case 'cancelTask': return fleet.cancelTask(req.id);
     case 'apply': return fleet.apply(req.decision);
     case 'fault': return fleet.injectBatteryFault(req.robotId);
+    case 'collect': return fleet.collect(req.taskId);
     case 'snapshot': return fleet.snapshot();
     case 'reset':
-      fleet = new Fleet(Date.now, { demoFault: demo });
+      fleet = new Fleet(Date.now, opts());
       fleet.seedDemo();
       placeRobots();
       return true;
@@ -67,7 +69,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
       const { mj, model, data } = await ready;
       demo = msg.demo;
       mj.mj_resetData(model, data);
-      fleet = msg.snapshot ? Fleet.restore(msg.snapshot as FleetSnapshot, Date.now, { demoFault: demo }) : new Fleet(Date.now, { demoFault: demo });
+      fleet = msg.snapshot ? Fleet.restore(msg.snapshot as FleetSnapshot, Date.now, opts()) : new Fleet(Date.now, opts());
       if (!msg.snapshot) fleet.seedDemo();
       placeRobots();
       run(model, data);

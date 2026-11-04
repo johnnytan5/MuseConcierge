@@ -1,7 +1,7 @@
 // Page-side handle on the sim worker. Implements FleetApi, so a call
 // session's tools go straight to the engine in the worker.
 import type { FleetApi, TaskView } from '../agent/tools.ts';
-import type { BrainDecision, FleetSnapshot, RobotId } from '../fleet/types.ts';
+import type { BrainDecision, FleetSnapshot, LineItem, RobotId } from '../fleet/types.ts';
 import type { ApplyResult } from '../fleet/engine.ts';
 import type { EventWithContext, FromWorker, GeomInfo, Reply, Request } from './protocol.ts';
 
@@ -51,13 +51,14 @@ export class FleetClient implements FleetApi {
     });
   }
 
-  createTask(args: { item: string; qty: number; room: string; callId: string }) {
+  createTask(args: { item: string; qty: number; also?: LineItem[]; room: string; callId: string }) {
     return this.request<{ task_id: string; eta_seconds: number }>({ kind: 'createTask', args });
   }
   getTask(id: string) { return this.request<TaskView | null>({ kind: 'getTask', id }); }
   cancelTask(id: string) { return this.request<boolean>({ kind: 'cancelTask', id }); }
   apply(decision: BrainDecision) { return this.request<ApplyResult>({ kind: 'apply', decision }); }
   fault(robotId: RobotId) { return this.request<boolean>({ kind: 'fault', robotId }); }
+  collect(taskId: string) { return this.request<boolean>({ kind: 'collect', taskId }); }
   reset() { return this.request<boolean>({ kind: 'reset' }); }
   getSnapshot() { return this.request<FleetSnapshot>({ kind: 'snapshot' }); }
 

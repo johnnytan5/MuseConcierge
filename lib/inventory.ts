@@ -17,6 +17,9 @@ export async function loadInventory(): Promise<InventoryItem[]> {
   return cache.items;
 }
 
+// Guests' own delivery-app orders wait at the front desk; a robot brings them up.
+const FRONT_DESK: InventoryItem[] = [{ name: 'uber eats order', category: 'parcels waiting at the front desk', available: true, stock_count: null }];
+
 // What the agent may offer: available and not known to be out of stock.
 export const deliverable = (items: InventoryItem[]) =>
-  items.filter((i) => i.available && (i.stock_count === null || i.stock_count > 0));
+  [...items, ...FRONT_DESK].filter((i) => i.available && (i.stock_count === null || i.stock_count > 0));
