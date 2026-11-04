@@ -17,7 +17,7 @@ f.apply({ assign: t1, to: 'robot_1', reason: '' });
 const r1 = f.robots[0];
 r1.pose = { x: NODES.fault_point[0], y: NODES.fault_point[1], yaw: 0 };
 r1.phase = 'to_room';
-f.robots[1].pose = { x: NODES.door_806[0], y: NODES.door_806[1], yaw: 0 };
+f.robots[1].pose = { x: NODES.door_1205[0], y: NODES.door_1205[1], yaw: 0 };
 f.robots[1].phase = 'at_room';
 f.injectBatteryFault('robot_1');
 const qFault = { event: f.drain().find((e) => e.type === 'battery_fault')!, options: optionsFor(t1, f.snapshot()), snap: f.snapshot() };
