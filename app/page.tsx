@@ -1,19 +1,20 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import SimView, { type CameraMode, type SimCapture } from '@/components/SimView.tsx';
-import DoorCheckPanel, { type DoorCheckEntry } from '@/components/DoorCheckPanel.tsx';
+import DoorCheckPanel, { DoorPhoto, CabinPhoto, cabinLine } from '@/components/DoorCheckPanel.tsx';
+import CollectPanel from '@/components/CollectPanel.tsx';
+import { useDoorFlow, kindsOf } from '@/components/useDoorFlow.ts';
 import CallPanel from '@/components/CallPanel.tsx';
 import RobotCard from '@/components/RobotCard.tsx';
 import TaskQueue from '@/components/TaskQueue.tsx';
-import BrainLog from '@/components/BrainLog.tsx';
+import BrainLog, { BrainCard } from '@/components/BrainLog.tsx';
 import RoomNotifications, { type NotificationEntry } from '@/components/RoomNotifications.tsx';
 import MetricsBar from '@/components/MetricsBar.tsx';
 import { FleetClient } from '@/lib/sim/client.ts';
 import { decide, type BrainEntry } from '@/lib/brain/client.ts';
 import { notification } from '@/lib/fleet/notify.ts';
-import { verdict, type DoorCheck } from '@/lib/vision/doorcheck.ts';
-import type { FleetSnapshot, RobotId } from '@/lib/fleet/types.ts';
+import type { FleetSnapshot } from '@/lib/fleet/types.ts';
 
 const SAVE_MS = 2000;
 
@@ -35,45 +36,41 @@ export default function Console() {
   const [error, setError] = useState('');
   const [brainLog, setBrainLog] = useState<BrainEntry[]>([]);
   const [notes, setNotes] = useState<NotificationEntry[]>([]);
+  const [plan, setPlan] = useState<BrainEntry | null>(null);
   const [demo, setDemo] = useState(false);
   const saved = useRef({ id: '', dirty: false, persist: true });
   const lastCall = useRef<string | null>(null); // brain requests ride on the latest call's limit
   const [visitor, setVisitor] = useState('');
-  const [doorCheck, setDoorCheck] = useState<DoorCheckEntry | null>(null);
   const capture = useRef<SimCapture | null>(null);
+
+  const addNote = useCallback((n: NotificationEntry) => setNotes((ns) => [n, ...ns.filter((x) => x.id !== n.id)]), []);
+  const door = useDoorFlow({ capture, client, callId: lastCall, setCamera, addNote });
+  const onFlowState = useRef(door.onState);
+  onFlowState.current = door.onState;
+
+  // Items ride in a robot's cabin from the pickup until the guest takes them.
+  const cabinKeys = useRef<Record<string, string>>({});
+  const loadCabins = useCallback((s: FleetSnapshot) => {
+    for (const r of s.robots) {
+      const t = s.tasks.find((x) => x.id === r.taskId);
+      const carrying = t?.kind === 'guest' && ['loading', 'to_room', 'at_room', 'halted'].includes(r.phase) && !['delivered', 'cancelled'].includes(t.status);
+      const kinds = t && carrying ? kindsOf(t) : [];
+      const key = kinds.join();
+      if (cabinKeys.current[r.id] !== key && capture.current) {
+        capture.current.setItems(r.id, kinds);
+        cabinKeys.current[r.id] = key;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let c: FleetClient | null = null;
     let unsubscribe = () => {};
     let cancelled = false;
-    const isDemo = new URLSearchParams(location.search).get('demo') === '1';
+    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === '1' || new URLSearchParams(location.search).get('demo') === '1';
     setDemo(isDemo);
     const id = (saved.current.id = visitorId());
     setVisitor(id);
-
-    const addNote = (n: NotificationEntry) => setNotes((ns) => [n, ...ns.filter((x) => x.id !== n.id)]);
-
-    // On arrival the robot photographs the door; the check never holds up the delivery.
-    const checkDoor = async (taskId: string, room: string, robotId: RobotId) => {
-      const image = capture.current?.door(robotId, room);
-      if (!image) return;
-      setDoorCheck({ taskId, room, robotId, image });
-      const update = (patch: Partial<DoorCheckEntry>) => setDoorCheck((d) => (d?.taskId === taskId ? { ...d, ...patch } : d));
-      try {
-        const res = await fetch('/api/vision', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image, room, callId: lastCall.current }),
-        });
-        const result = await res.json();
-        if (!res.ok) throw new Error(result.error ?? `HTTP ${res.status}`);
-        const v = verdict(room, result as DoorCheck);
-        update({ result, verdict: v });
-        if (v === 'confirmed') addNote({ id: `${taskId}-arrived`, at: Date.now(), room, text: 'Arrived · door confirmed' });
-      } catch (e) {
-        update({ error: e instanceof Error ? e.message : 'failed' });
-      }
-    };
 
     (async () => {
       let state: { snapshot: FleetSnapshot | null; brain_log: BrainEntry[]; notifications: NotificationEntry[] } | null = null;
@@ -91,19 +88,19 @@ export default function Console() {
       }
       c = new FleetClient({ snapshot: state?.snapshot ?? null, demo: isDemo });
       unsubscribe = c.subscribe({
-        onState: (s) => { setSnap(s); saved.current.dirty = true; },
+        onState: (s) => { setSnap(s); saved.current.dirty = true; onFlowState.current(s); loadCabins(s); },
         onError: setError,
         onEvents: (events, snapshot) => {
           for (const ev of events) {
-            if (ev.event.type === 'delivered') {
+            if (ev.event.type === 'delivered' || ev.event.type === 'arrived' || ev.event.type === 'not_collected') {
               const { taskId } = ev.event;
               const task = snapshot.tasks.find((t) => t.id === taskId);
               const n = task && notification(ev.event, null, task);
-              if (n) addNote({ id: `${taskId}-arrived`, at: Date.now(), ...n });
-              if (n && task) void checkDoor(taskId, task.room, ev.event.robotId);
+              if (n) addNote({ id: `${taskId}-delivered`, at: Date.now(), ...n });
             }
             void decide(c!, ev, snapshot, (entry) => {
               setBrainLog((log) => [entry, ...log.filter((x) => x.id !== entry.id)]);
+              if (entry.event.type === 'battery_fault') setPlan(entry);
               if (entry.notify) addNote({ id: `brain-${entry.id}`, at: Date.now(), ...entry.notify });
             }, lastCall.current);
           }
@@ -115,7 +112,7 @@ export default function Console() {
     })();
 
     return () => { cancelled = true; unsubscribe(); c?.terminate(); };
-  }, []);
+  }, [addNote, loadCabins]);
 
   // Save the run every couple of seconds while it changes.
   const latest = useRef({ snap, brainLog, notes });
@@ -139,7 +136,9 @@ export default function Console() {
     if (!client) return;
     setBrainLog([]);
     setNotes([]);
-    setDoorCheck(null);
+    setPlan(null);
+    door.reset();
+    setCamera('overview');
     await client.reset();
   }
 
@@ -162,17 +161,45 @@ export default function Console() {
       </div>
       <div className="col">
         <CallPanel fleet={client} visitorId={visitor} onCallStart={(id) => { lastCall.current = id; }} />
+        <CollectPanel flow={door.flow} onCollect={door.collect} />
       </div>
       <div className="center">
         <div className="stage">
           <div className="cams">
-            {(['overview', 'robot_1', 'robot_2'] as CameraMode[]).map((m) => (
+            {(['overview', 'robot_1', 'robot_2'] as const).map((m) => (
               <button key={m} className={`btn small ${camera === m ? 'on' : ''}`} onClick={() => setCamera(m)}>
                 {m === 'overview' ? 'Floor' : m === 'robot_1' ? 'Robot 1' : 'Robot 2'}
               </button>
             ))}
           </div>
           <SimView client={client} camera={camera} captureRef={capture} />
+          {door.flash > 0 && <div key={door.flash} className="flash" />}
+          {typeof camera === 'object' && <span className="povtag">{camera.robot === 'robot_1' ? 'Robot 1' : 'Robot 2'} {camera.pov === 'door' ? 'door camera' : 'cabin camera'}</span>}
+          {door.tip && (
+            <div className="tip" key={door.tip.id} role="status">
+              <span>{door.tip.text}</span>
+              <button className="close" aria-label="Dismiss" onClick={door.dismissTip}>×</button>
+            </div>
+          )}
+          {plan && (
+            <div className="plan">
+              <header>
+                <span>Battery fault: the brain re-plans</span>
+                <button className="close" aria-label="Dismiss" onClick={() => setPlan(null)}>×</button>
+              </header>
+              <BrainCard b={plan} />
+            </div>
+          )}
+          {door.resultOpen && door.flow && (door.flow.after ?? door.flow.before ?? door.flow.door) && (
+            <div className="result">
+              <header>
+                <span>{door.flow.after ? 'SAM 3.1: cabin after collection' : door.flow.before ? 'SAM 3.1: cabin on arrival' : 'SAM 3.1: door check'}</span>
+                <button className="close" aria-label="Dismiss" onClick={door.closeResult}>×</button>
+              </header>
+              {door.flow.after ? <CabinPhoto shot={door.flow.after} /> : door.flow.before ? <CabinPhoto shot={door.flow.before} /> : <DoorPhoto shot={door.flow.door!} />}
+              <small className="muted">{door.flow.after ? cabinLine(door.flow.after.result) : door.flow.before ? cabinLine(door.flow.before.result) : door.flow.door?.result ? `Plate reads ${door.flow.door.result.number ?? '?'}` : 'Checking…'}</small>
+            </div>
+          )}
         </div>
         <div className="below">
           <TaskQueue snap={snap} />
@@ -184,7 +211,7 @@ export default function Console() {
           <h2>Fleet</h2>
           {snap?.robots.map((r) => <RobotCard key={r.id} robot={r} />)}
         </section>
-        <DoorCheckPanel entry={doorCheck} />
+        <DoorCheckPanel flow={door.flow} />
         <RoomNotifications items={notes} />
       </div>
     </main>

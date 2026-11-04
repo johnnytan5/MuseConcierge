@@ -1,7 +1,7 @@
 'use client';
 
 // The guest's phone line: mic → transcriber → Muse Spark call agent → TTS.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Gate } from '@/lib/voice/gate.ts';
 import { openAsr, KEYWORDS, type AsrProvider } from '@/lib/voice/asr.ts';
 import { speak } from '@/lib/voice/tts.ts';
@@ -21,6 +21,8 @@ export default function CallPanel({ fleet, visitorId, onCallStart }: { fleet: Fl
   const [provider, setProvider] = useState<AsrProvider | null>(null);
   const hangup = useRef<() => void>(() => {});
   const add = (l: Line) => setLines((ls) => [...ls, l]);
+  const transcript = useRef<HTMLOListElement>(null);
+  useEffect(() => { transcript.current?.scrollTo({ top: transcript.current.scrollHeight }); }, [lines, partial]);
 
   async function start() {
     if (!fleet || busy) return;
@@ -94,7 +96,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart }: { fleet: Fl
       <button className={live ? 'btn danger' : 'btn primary'} disabled={!fleet || busy} onClick={live ? () => hangup.current() : start}>
         {busy ? 'Connecting…' : live ? 'Hang up' : 'Call room service'}
       </button>
-      <ol className="transcript">
+      <ol className="transcript" ref={transcript}>
         {lines.map((l, i) => (
           <li key={i} className={l.who}>
             <span>{l.text}</span>

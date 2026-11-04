@@ -2,9 +2,8 @@
 // size, z-up with the origin at the centre of the base, so SAM 3.1 has
 // something to find in the cabin and something to miss once it is collected.
 import * as THREE from 'three';
+import type { ItemKind } from '@/lib/vision/doorcheck.ts';
 
-export const ITEM_KINDS = ['towel', 'shampoo', 'conditioner', 'food_bag', 'water', 'slippers', 'toothbrush'] as const;
-export type ItemKind = (typeof ITEM_KINDS)[number];
 
 // The cabin floor in floor.xml, relative to the robot's chassis geom: the
 // centre of the liner, 0.3 wide (x), 0.215 deep (y), 0.208 up to the ceiling.
@@ -13,6 +12,11 @@ const CABIN_HEIGHT = 0.208;
 // Travel sizes, picked so each item fits the cabin and stays whole in the
 // close ceiling camera's frame (SAM 3.1 misses items that run off the frame).
 const ITEM_SCALE: Record<ItemKind, number> = { towel: 0.62, shampoo: 0.8, conditioner: 0.8, food_bag: 0.58, water: 0.8, slippers: 0.8, toothbrush: 1 };
+
+const TAKE_MS = 1100; // one item lifted out
+const TAKE_STAGGER_MS = 500;
+const TAKE_REACH = -0.6; // m towards the door, past its opening
+const TAKE_LIFT = 0.06;
 
 const FACING_CAMERA = -Math.PI / 2; // cylinder theta of the side an item shows the cabin camera
 
@@ -268,7 +272,7 @@ export function buildItem(kind: ItemKind): THREE.Group {
 // The cabin as a frame on the robot's chassis mesh: holds the item, a small
 // ceiling light and a wide camera over the back wall, looking down at the
 // floor with the door at the top of the picture.
-export type Cabin = { frame: THREE.Group; camera: THREE.PerspectiveCamera; setItem(kind: ItemKind | null): void };
+export type Cabin = { frame: THREE.Group; camera: THREE.PerspectiveCamera; setItems(kinds: ItemKind[]): void; takeOut(): Promise<void> };
 
 export function buildCabin(chassis: THREE.Object3D, aspect: number, layer: number): Cabin {
   const frame = new THREE.Group();
@@ -284,19 +288,45 @@ export function buildCabin(chassis: THREE.Object3D, aspect: number, layer: numbe
   camera.position.set(0, 0.1, CABIN_HEIGHT - 0.012);
   camera.lookAt(0, -0.015, 0); // before parenting, so this is in the cabin's own frame
   frame.add(camera);
-  let item: THREE.Group | null = null;
+  let items: THREE.Group[] = [];
   return {
     frame,
     camera,
-    setItem(kind) {
-      if (item) frame.remove(item);
-      item = kind && new THREE.Group();
-      if (!item || !kind) return;
-      item.add(buildItem(kind));
-      item.rotation.z = -Math.PI / 2; // an item's +x points at the door
-      item.scale.setScalar(ITEM_SCALE[kind]);
-      item.traverse((o) => o.layers.enable(layer));
-      frame.add(item);
+    // A guest lifts the items out through the door, one after the other.
+    takeOut() {
+      const moving = items;
+      items = [];
+      const started = performance.now();
+      return new Promise((resolve) => {
+        const step = () => {
+          let done = true;
+          moving.forEach((item, i) => {
+            const t = Math.min(1, Math.max(0, (performance.now() - started - i * TAKE_STAGGER_MS) / TAKE_MS));
+            const e = t * t * (3 - 2 * t);
+            item.position.y = e * TAKE_REACH;
+            item.position.z = Math.sin(e * Math.PI) * TAKE_LIFT;
+            if (t >= 1) frame.remove(item);
+            else done = false;
+          });
+          if (done) resolve();
+          else requestAnimationFrame(step);
+        };
+        step();
+      });
+    },
+    setItems(kinds) {
+      for (const item of items) frame.remove(item);
+      // Side by side across the cabin's 0.3 m width.
+      items = kinds.slice(0, 3).map((kind, i) => {
+        const item = new THREE.Group();
+        item.add(buildItem(kind));
+        item.rotation.z = -Math.PI / 2; // an item's +x points at the door
+        item.scale.setScalar(ITEM_SCALE[kind] * (kinds.length > 2 ? 0.8 : 1));
+        item.position.x = kinds.length > 1 ? (i - (kinds.length - 1) / 2) * (kinds.length > 2 ? 0.1 : 0.15) : 0;
+        item.traverse((o) => o.layers.enable(layer));
+        frame.add(item);
+        return item;
+      });
     },
   };
 }

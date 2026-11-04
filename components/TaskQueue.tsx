@@ -1,11 +1,11 @@
-import type { FleetSnapshot, TaskStatus } from '@/lib/fleet/types.ts';
+import { lineItems, type FleetSnapshot, type TaskStatus } from '@/lib/fleet/types.ts';
 
 const LABEL: Record<TaskStatus, string> = {
-  queued: 'queued', assigned: 'assigned', en_route: 'en route', reassigned: 'reassigned', delivered: 'delivered', cancelled: 'cancelled',
+  queued: 'queued', assigned: 'assigned', en_route: 'en route', reassigned: 'reassigned', at_door: 'at door', delivered: 'collected', not_collected: 'not collected', cancelled: 'cancelled',
 };
 
 function eta(etaAt: number | null, now: number, status: TaskStatus): string {
-  if (!etaAt || status === 'delivered' || status === 'cancelled' || status === 'queued') return '—';
+  if (!etaAt || status === 'delivered' || status === 'cancelled' || status === 'queued' || status === 'at_door' || status === 'not_collected') return '—';
   const s = Math.max(0, Math.round((etaAt - now) / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
@@ -22,7 +22,7 @@ export default function TaskQueue({ snap }: { snap: FleetSnapshot | null }) {
             <tr key={t.id} className={t.kind}>
               <td>{t.id}</td>
               <td>{t.room}</td>
-              <td>{t.qty > 1 ? `${t.qty}× ` : ''}{t.item}</td>
+              <td>{lineItems(t).map((l) => `${l.qty > 1 ? `${l.qty}× ` : ''}${l.item}`).join(' + ')}</td>
               <td>{t.robotId ? t.robotId.replace('robot_', 'R') : '—'}</td>
               {/* keyed on status: the cell remounts and flashes when it changes */}
               <td key={t.status} className={`status ${t.status}`}>{LABEL[t.status]}</td>

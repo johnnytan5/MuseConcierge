@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBoxes, readRoomNumber, verdict, type Box } from './doorcheck.ts';
+import { parseBoxes, readRoomNumber, verdict, kindFor, cabinVerdict, type Box } from './doorcheck.ts';
 
 // Real SAM 3.1 output for a rendered door (scripts' go/no-go test, 2026-11-01).
 const SAM = '<|box;x1=419;y1=137;x2=656;y2=641;w=1024;h=768;c=0.9024390578269958|>';
@@ -28,4 +28,20 @@ test('verdict: confirmed needs the door and the right number', () => {
   assert.equal(verdict('804', { door: null, sign: null, number: '804', ms: 0 }), 'unsure');
   assert.equal(verdict('804', { door: weak, sign: null, number: '804', ms: 0 }), 'unsure');
   assert.equal(verdict('804', { door, sign: null, number: null, ms: 0 }), 'unsure');
+});
+
+test('order items map to the model in the cabin', () => {
+  assert.equal(kindFor('towel'), 'towel');
+  assert.equal(kindFor('bath towel set'), 'towel');
+  assert.equal(kindFor('uber eats order'), 'food_bag');
+  assert.equal(kindFor('nasi lemak'), 'food_bag');
+  assert.equal(kindFor('sparkling water'), 'water');
+  assert.equal(kindFor('phone charger, usb-c'), null);
+});
+
+test('a cabin only counts as empty if every check really ran', () => {
+  assert.equal(cabinVerdict({ found: { towel: null, food_bag: null }, failed: [], ms: 0 }), 'empty');
+  assert.equal(cabinVerdict({ found: { towel: door, food_bag: null }, failed: [], ms: 0 }), 'occupied');
+  assert.equal(cabinVerdict({ found: { towel: null }, failed: ['food_bag'], ms: 0 }), 'unknown');
+  assert.equal(cabinVerdict({ found: { towel: door }, failed: ['food_bag'], ms: 0 }), 'occupied');
 });

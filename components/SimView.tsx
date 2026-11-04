@@ -10,15 +10,18 @@ import type { GeomInfo } from '@/lib/sim/protocol.ts';
 import type { RobotId } from '@/lib/fleet/types.ts';
 import { NODES } from '@/lib/fleet/nav.ts';
 import { buildDoorstep, doorCamera, captureJpeg, PHOTO_LAYER, FRAME } from './doorstep.ts';
-import { buildCabin, type Cabin, type ItemKind } from './items.ts';
+import { buildCabin, type Cabin } from './items.ts';
+import type { ItemKind } from '@/lib/vision/doorcheck.ts';
 
-export type CameraMode = 'overview' | RobotId;
+// pov: the stage shows what a robot's camera sees, at a room's door or in its cabin.
+export type CameraMode = 'overview' | RobotId | { pov: 'door' | 'cabin'; robot: RobotId; room: string };
 
 // The robots' cameras, rendered to JPEG data URLs; null before the model loads.
 export type SimCapture = {
   door(robot: RobotId, room: string): string | null;
   cabin(robot: RobotId): string | null;
-  setItem(robot: RobotId, kind: ItemKind | null): void;
+  setItems(robot: RobotId, kinds: ItemKind[]): void;
+  takeOut(robot: RobotId): Promise<void>;
   guestView(robot: RobotId, reaching?: boolean): string | null;
 };
 
@@ -151,10 +154,17 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
           return mesh ? captureJpeg(renderer, scene, doorCamera(new THREE.Vector3().setFromMatrixPosition(mesh.matrix), room)) : null;
         },
         cabin(robot) {
-          return cabins[robot] ? captureJpeg(renderer, scene, cabins[robot].camera) : null;
+          const c = cabins[robot]?.camera;
+          if (!c) return null;
+          c.aspect = FRAME.w / FRAME.h;
+          c.updateProjectionMatrix();
+          return captureJpeg(renderer, scene, c);
         },
-        setItem(robot, kind) {
-          cabins[robot]?.setItem(kind);
+        setItems(robot, kinds) {
+          cabins[robot]?.setItems(kinds);
+        },
+        takeOut(robot) {
+          return cabins[robot]?.takeOut() ?? Promise.resolve();
         },
         // What a guest sees, from the cabin's frame: standing in the room's
         // doorway at 1.5 m eye height, or stepped up and bending to reach in.
@@ -192,7 +202,18 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
     let raf = 0;
     const loop = () => {
       const mode = cameraMode.current;
-      const i = mode === 'overview' ? -1 : bodyIdx[mode];
+      if (typeof mode === 'object') {
+        const body = meshes[bodyIdx[mode.robot]];
+        const pov = !body ? null : mode.pov === 'cabin' ? cabins[mode.robot]?.camera : doorCamera(new THREE.Vector3().setFromMatrixPosition(body.matrix), mode.room);
+        if (pov) {
+          pov.aspect = el.clientWidth / Math.max(1, el.clientHeight);
+          pov.updateProjectionMatrix();
+          renderer.render(scene, pov);
+          raf = requestAnimationFrame(loop);
+          return;
+        }
+      }
+      const i = typeof mode === 'object' || mode === 'overview' ? -1 : bodyIdx[mode];
       const mesh = i >= 0 ? meshes[i] : null;
       if (mesh) {
         const p = new THREE.Vector3().setFromMatrixPosition(mesh.matrix);
