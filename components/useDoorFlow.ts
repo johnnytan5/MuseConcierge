@@ -7,6 +7,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { CameraMode, SimCapture } from './SimView.tsx';
 import type { FleetClient } from '@/lib/sim/client.ts';
+import { logCall, escalate } from '@/lib/admin/client.ts';
 import { lineItems, type FleetSnapshot, type RobotId, type Task } from '@/lib/fleet/types.ts';
 import { cabinVerdict, kindFor, verdict, type CabinCheck, type DoorCheck, type ItemKind, type Verdict } from '@/lib/vision/doorcheck.ts';
 
@@ -86,6 +87,7 @@ export function useDoorFlow(deps: {
         if (stale()) return;
         const v = verdict(t.room, result);
         update({ door: { image: doorImage, result, verdict: v } });
+        void logCall(callId.current, { tool: { name: 'door_check', args: { room: t.room, robot: robotId, models: ['sam-3.1', 'muse-spark'] }, result, summary: `Plate reads ${result.number ?? '?'}: ${v.replace('_', ' ')}` } });
         if (v === 'confirmed') addNote({ id: `${t.id}-door`, at: Date.now(), room: t.room, text: 'Robot at your door' });
       }).catch((e) => { if (!stale()) update({ error: e.message }); });
       await sleep(AFTER_DOOR_MS);
@@ -104,6 +106,7 @@ export function useDoorFlow(deps: {
       try {
         const result = await post<CabinCheck>({ image, items: kinds });
         if (!stale()) update({ before: { image, result } });
+        void logCall(callId.current, { tool: { name: 'cabin_check', args: { when: 'on arrival', items: kinds, model: 'sam-3.1' }, result, summary: cabinVerdict(result) === 'occupied' ? 'Items seen in the cabin' : 'Nothing seen in the cabin' } });
       } catch (e) {
         if (!stale()) update({ error: e instanceof Error ? e.message : 'cabin check failed' });
       }
@@ -145,6 +148,7 @@ export function useDoorFlow(deps: {
         update({ after: { image, result } });
         setResultOpen(true);
         const v = cabinVerdict(result);
+        void logCall(callId.current, { tool: { name: 'cabin_check', args: { when: 'after collection', items: f.kinds, model: 'sam-3.1' }, result, summary: `Cabin ${v}` } });
         state = v === 'empty' ? 'collected' : v === 'occupied' ? 'still_there' : 'unknown';
       } catch (e) {
         if (stale()) return;
@@ -155,12 +159,13 @@ export function useDoorFlow(deps: {
     update({ step: state });
     if (state !== 'collected') return;
     await client.collect(f.taskId);
+    void logCall(callId.current, { tool: { name: 'collection', args: { task: f.taskId, room: f.room, robot: f.robotId }, result: { collected: true }, summary: 'Guest collected; robot leaving' } });
     await sleep(STAGE_BACK_MS);
     if (!stale()) {
       setCamera('overview');
       setTip(null);
     }
-  }, [capture, checkCabin, client, setCamera, shutter, update]);
+  }, [callId, capture, checkCabin, client, setCamera, shutter, update]);
 
   // Called with every state update.
   const onState = useCallback((s: FleetSnapshot) => {
@@ -173,8 +178,9 @@ export function useDoorFlow(deps: {
     if (f && s.tasks.find((x) => x.id === f.taskId)?.status === 'not_collected' && f.step !== 'timed_out') {
       update({ step: 'timed_out' });
       setCamera('overview');
+      void escalate(callId.current, `Order ${f.taskId} was not collected at the door`, f.room);
     }
-  }, [run, setCamera, update]);
+  }, [callId, run, setCamera, update]);
 
   const reset = useCallback(() => {
     started.current.clear();

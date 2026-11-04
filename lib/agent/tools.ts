@@ -23,7 +23,7 @@ export type FleetApi = {
   cancelTask(id: string): MaybeAsync<boolean>;
 };
 
-export type ToolContext = { callId: string; items: string[] };
+export type ToolContext = { callId: string; items: string[]; escalate?: (reason: string, room?: string) => unknown };
 
 const MAX_QTY = 5;
 const MAX_LINES = 3; // what fits one cabin
@@ -65,6 +65,9 @@ export async function runTool(name: string, args: unknown, fleet: FleetApi, ctx:
       return (await fleet.getTask(String(a.task_id))) ?? { error: `no task ${a.task_id}` };
     case 'cancel_task':
       return (await fleet.cancelTask(String(a.task_id))) ? { cancelled: true } : { error: `cannot cancel ${a.task_id}` };
+    case 'escalate_to_frontdesk':
+      await ctx.escalate?.(String(a.reason ?? 'Guest asked for the front desk'), a.room ? String(a.room) : undefined);
+      return { ack: true };
     case 'end_call':
       return { ended: true };
     default:
@@ -90,5 +93,9 @@ export const TOOL_DEFS: ToolDef[] = [
   }, ['item', 'qty', 'room']),
   fn('get_task_status', 'Current status and ETA of a delivery.', { task_id: { type: 'string' } }, ['task_id']),
   fn('cancel_task', 'Cancel a delivery the guest no longer wants.', { task_id: { type: 'string' } }, ['task_id']),
+  fn('escalate_to_frontdesk', 'Pass something the robots cannot do to the front desk staff: late checkout, complaints, billing, or a guest asking for a person.', {
+    reason: { type: 'string', description: 'What the guest needs, in one short sentence' },
+    room: { type: 'string', description: 'Room number as digits, if known' },
+  }, ['reason']),
   fn('end_call', 'Hang up after the guest has their confirmation and ETA, or says goodbye.'),
 ];

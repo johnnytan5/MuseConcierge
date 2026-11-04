@@ -23,11 +23,13 @@ export class CallSession {
   ended = false;
   queue: Promise<void> = Promise.resolve();
   speech: Promise<void> = Promise.resolve();
+  escalate?: (reason: string, room?: string) => unknown;
 
   constructor(callId: string, fleet: FleetApi, items: string[], hooks: {
     onSay: (text: string) => Promise<void>;
     onEnd: () => void;
     onLog?: (entry: CallLog) => void;
+    escalate?: (reason: string, room?: string) => unknown;
     agentUrl?: string; // absolute URL when run outside the page, e.g. scripts/call-check.mts
   }) {
     this.callId = callId;
@@ -36,6 +38,7 @@ export class CallSession {
     this.onSay = hooks.onSay;
     this.onEnd = hooks.onEnd;
     this.onLog = hooks.onLog ?? (() => {});
+    this.escalate = hooks.escalate;
     this.agentUrl = hooks.agentUrl ?? '/api/agent';
   }
 
@@ -80,7 +83,7 @@ export class CallSession {
       for (const call of message.tool_calls) {
         let args: unknown = {};
         try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* the tool reports bad args */ }
-        const result = await runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items });
+        const result = await runTool(call.function.name, args, this.fleet, { callId: this.callId, items: this.items, escalate: this.escalate });
         this.onLog({ kind: 'tool', name: call.function.name, args, result, ms });
         this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         if (call.function.name === 'end_call') hangUp = true;
