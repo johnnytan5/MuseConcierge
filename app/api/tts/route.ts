@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     });
     if (!res.ok || !res.body) return Response.json({ error: `tts ${res.status}` }, { status: 502 });
     return new Response(res.body, {
-      headers: { 'Content-Type': 'application/octet-stream', 'X-Sample-Rate': res.headers.get('x-tts-sample-rate') ?? '24000' },
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Sample-Rate': res.headers.get('x-tts-sample-rate') ?? '24000', 'X-Voice': res.headers.get('x-tts-voice-id') ?? VOICE },
     });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message.slice(0, 120) : 'tts failed' }, { status: 502 });
