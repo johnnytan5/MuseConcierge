@@ -19,9 +19,9 @@ export function parseBoxes(text: string): Box[] {
     .sort((a, b) => b.c - a.c) as Box[];
 }
 
-// Spark is asked for the number only, but take the first 3-digit run anyway.
+// Spark is asked for the number only, but take the first 3- or 4-digit run anyway.
 export function readRoomNumber(text: string): string | null {
-  return text.match(/\b\d{3}\b/)?.[0] ?? null;
+  return text.match(/\b\d{3,4}\b/)?.[0] ?? null;
 }
 
 export function verdict(room: string, check: DoorCheck): Verdict {
@@ -73,4 +73,27 @@ export type CabinCheck = { found: Partial<Record<ItemKind, Box | null>>; failed:
 export function cabinVerdict(c: CabinCheck): 'empty' | 'occupied' | 'unknown' {
   if (Object.values(c.found).some(Boolean)) return 'occupied';
   return c.failed.length ? 'unknown' : 'empty';
+}
+
+function overlap(a: Box, b: Box): number {
+  const w = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+  const h = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+  const shared = w * h;
+  return shared / ((a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - shared);
+}
+
+// SAM answers each prompt alone, so "towel" can land on the bag next to it.
+// One object is never two items: the item with the fewest candidates picks
+// first (ties go to the surest), and the others take their best box that isn't already taken.
+export function assignBoxes(candidates: Partial<Record<ItemKind, Box[]>>): Partial<Record<ItemKind, Box | null>> {
+  const taken: Box[] = [];
+  const found: Partial<Record<ItemKind, Box | null>> = {};
+  const best = (k: ItemKind) => Math.max(0, ...candidates[k]!.map((b) => b.c));
+  const kinds = (Object.keys(candidates) as ItemKind[]).sort((a, b) => candidates[a]!.length - candidates[b]!.length || best(b) - best(a));
+  for (const k of kinds) {
+    const box = candidates[k]!.find((b) => taken.every((t) => overlap(t, b) < 0.5)) ?? null;
+    if (box) taken.push(box);
+    found[k] = box;
+  }
+  return found;
 }

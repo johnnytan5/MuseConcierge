@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBoxes, readRoomNumber, verdict, kindFor, cabinVerdict, type Box } from './doorcheck.ts';
+import { parseBoxes, readRoomNumber, verdict, kindFor, cabinVerdict, assignBoxes, type Box } from './doorcheck.ts';
 
 // Real SAM 3.1 output for a rendered door (scripts' go/no-go test, 2026-11-01).
 const SAM = '<|box;x1=419;y1=137;x2=656;y2=641;w=1024;h=768;c=0.9024390578269958|>';
@@ -16,7 +16,8 @@ test('reads the room number out of a chatty answer', () => {
   assert.equal(readRoomNumber('804'), '804');
   assert.equal(readRoomNumber('The sign says 804.'), '804');
   assert.equal(readRoomNumber('I cannot see a number'), null);
-  assert.equal(readRoomNumber('8045'), null);
+  assert.equal(readRoomNumber('1204'), '1204');
+  assert.equal(readRoomNumber('80456'), null);
 });
 
 const door = parseBoxes(SAM)[0];
@@ -44,4 +45,15 @@ test('a cabin only counts as empty if every check really ran', () => {
   assert.equal(cabinVerdict({ found: { towel: door, food_bag: null }, failed: [], ms: 0 }), 'occupied');
   assert.equal(cabinVerdict({ found: { towel: null }, failed: ['food_bag'], ms: 0 }), 'unknown');
   assert.equal(cabinVerdict({ found: { towel: door }, failed: ['food_bag'], ms: 0 }), 'occupied');
+});
+
+test('one object is never two items: "towel" landing on the bag falls back to the towel', () => {
+  const bag: Box = { x1: 0, y1: 115, x2: 310, y2: 361, w: 640, h: 480, c: 0.89 };
+  const towel: Box = { x1: 335, y1: 118, x2: 639, y2: 414, w: 640, h: 480, c: 0.75 };
+  const onBag: Box = { ...bag, x2: 305, c: 0.68 };
+  const found = assignBoxes({ towel: [onBag, towel], food_bag: [bag] });
+  assert.deepEqual(found.food_bag, bag);
+  assert.deepEqual(found.towel, towel);
+  assert.deepEqual(assignBoxes({ towel: [onBag], food_bag: [bag] }).towel, null);
+  assert.deepEqual(assignBoxes({ towel: [], food_bag: [] }), { towel: null, food_bag: null });
 });

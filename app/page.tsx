@@ -11,12 +11,20 @@ import TaskQueue from '@/components/TaskQueue.tsx';
 import BrainLog, { BrainCard } from '@/components/BrainLog.tsx';
 import RoomNotifications, { type NotificationEntry } from '@/components/RoomNotifications.tsx';
 import MetricsBar from '@/components/MetricsBar.tsx';
+import InventoryPanel from '@/components/InventoryPanel.tsx';
+import CallLogPanel from '@/components/CallLogPanel.tsx';
+import EscalationsPanel from '@/components/EscalationsPanel.tsx';
+import { useRecords } from '@/components/useRecords.ts';
+import { logCall } from '@/lib/admin/client.ts';
 import { FleetClient } from '@/lib/sim/client.ts';
 import { decide, type BrainEntry } from '@/lib/brain/client.ts';
 import { notification } from '@/lib/fleet/notify.ts';
+import { FLOOR_VERSION } from '@/lib/fleet/nav.ts';
 import type { FleetSnapshot } from '@/lib/fleet/types.ts';
 
 const SAVE_MS = 2000;
+
+type Tab = 'live' | 'fleet' | 'deliveries' | 'calls' | 'escalations' | 'inventory' | 'brain' | 'cameras' | 'rooms';
 
 // One saved run per browser; see app/api/fleet-state.
 function visitorId(): string {
@@ -37,12 +45,15 @@ export default function Console() {
   const [brainLog, setBrainLog] = useState<BrainEntry[]>([]);
   const [notes, setNotes] = useState<NotificationEntry[]>([]);
   const [plan, setPlan] = useState<BrainEntry | null>(null);
+  const [tab, setTab] = useState<Tab>('live');
+  const [menuOpen, setMenuOpen] = useState(true);
   const [demo, setDemo] = useState(false);
   const saved = useRef({ id: '', dirty: false, persist: true });
   const lastCall = useRef<string | null>(null); // brain requests ride on the latest call's limit
   const [visitor, setVisitor] = useState('');
   const capture = useRef<SimCapture | null>(null);
 
+  const { records, refresh: refreshRecords } = useRecords();
   const addNote = useCallback((n: NotificationEntry) => setNotes((ns) => [n, ...ns.filter((x) => x.id !== n.id)]), []);
   const door = useDoorFlow({ capture, client, callId: lastCall, setCamera, addNote });
   const onFlowState = useRef(door.onState);
@@ -77,6 +88,7 @@ export default function Console() {
       try {
         const res = await fetch(`/api/fleet-state?id=${id}`);
         if (res.ok) state = (await res.json()).state;
+        if (state?.snapshot?.floor !== FLOOR_VERSION) state = null; // saved on another floor plan: its robots would be outside the walls
         else saved.current.persist = false; // table not set up: run without saving
       } catch {
         saved.current.persist = false;
@@ -101,6 +113,14 @@ export default function Console() {
             void decide(c!, ev, snapshot, (entry) => {
               setBrainLog((log) => [entry, ...log.filter((x) => x.id !== entry.id)]);
               if (entry.event.type === 'battery_fault') setPlan(entry);
+              if (!entry.pending) {
+                void logCall(lastCall.current, { tool: {
+                  name: 'brain_decision',
+                  args: { event: entry.event, task: entry.taskId, options: entry.options, model: entry.source === 'model' ? 'muse-wonder-1.0' : 'fallback rule' },
+                  result: entry.decision,
+                  summary: entry.line,
+                } });
+              }
               if (entry.notify) addNote({ id: `brain-${entry.id}`, at: Date.now(), ...entry.notify });
             }, lastCall.current);
           }
@@ -144,75 +164,102 @@ export default function Console() {
 
   const r1 = snap?.robots.find((r) => r.id === 'robot_1');
   const canFault = !!r1?.taskId && !r1.fault;
+  const moving = snap?.robots.filter((r) => ['to_pickup', 'to_room', 'returning'].includes(r.phase)).length ?? 0;
+  const tabs: { id: Tab; label: string; count: string }[] = [
+    { id: 'live', label: 'Live call', count: '–' },
+    { id: 'fleet', label: 'Fleet', count: `${moving}/${snap?.robots.length ?? 2}` },
+    { id: 'deliveries', label: 'Deliveries', count: String(snap?.tasks.length ?? 0) },
+    { id: 'calls', label: 'Call log', count: String(records?.sessions.length ?? 0) },
+    { id: 'escalations', label: 'Escalations', count: String(records?.escalations.filter((e) => e.status === 'open').length ?? 0) },
+    { id: 'inventory', label: 'Inventory', count: String(records?.items.length ?? 0) },
+    { id: 'brain', label: 'Brain', count: String(brainLog.length) },
+    { id: 'cameras', label: 'Cameras', count: String(door.flow ? [door.flow.door, door.flow.before, door.flow.after].filter(Boolean).length : 0) },
+    { id: 'rooms', label: 'Room notices', count: String(notes.length) },
+  ];
+  const show = (t: Tab) => (tab === t ? 'tab-page' : 'tab-page hidden');
 
   return (
     <main className="console">
-      <div className="topbar">
-        <h1>Muse Concierge</h1>
-        <span className="muted">Muse Voice Transcribe · Muse Spark call agent · Muse Wonder fleet brain</span>
-        <span className="spacer" />
-        {error && <span style={{ color: 'var(--red)' }}>{error}</span>}
-        <MetricsBar snap={snap} />
-        <button className="btn small" disabled={!canFault} onClick={() => client?.fault('robot_1')} title="Drop robot 1's battery to 9% mid-delivery">
-          Battery fault: robot 1
-        </button>
-        <button className="btn small" onClick={reset}>Reset demo</button>
-        {demo && <span className="badge red" title="Battery fault fires automatically on robot 1's first delivery">demo mode</span>}
-      </div>
-      <div className="col">
-        <CallPanel fleet={client} visitorId={visitor} onCallStart={(id) => { lastCall.current = id; }} />
-        <CollectPanel flow={door.flow} onCollect={door.collect} />
-      </div>
-      <div className="center">
-        <div className="stage">
-          <div className="cams">
-            {(['overview', 'robot_1', 'robot_2'] as const).map((m) => (
-              <button key={m} className={`btn small ${camera === m ? 'on' : ''}`} onClick={() => setCamera(m)}>
-                {m === 'overview' ? 'Floor' : m === 'robot_1' ? 'Robot 1' : 'Robot 2'}
-              </button>
-            ))}
+      <div className="admin">
+        <div className="topbar">
+          <button className="menu" aria-label="Toggle menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}><span /><span /><span /></button>
+          <h1>Room service ops</h1>
+          <span className="spacer" />
+          {error && <span className="top-error">{error}</span>}
+          <span className="live-dot">Live</span>
+          {demo && <span className="tag" title="Battery fault fires automatically on robot 1's first delivery">Demo mode</span>}
+          <button className="btn small" disabled={!canFault} onClick={() => client?.fault('robot_1')} title="Drop robot 1's battery to 9% mid-delivery">Battery fault</button>
+          <button className="btn small" onClick={reset}>Reset demo</button>
+        </div>
+        <div className="body">
+          {menuOpen && (
+            <nav className="side">
+              {tabs.map((t) => (
+                <button key={t.id} className={tab === t.id ? 'on' : ''} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
+                  <span>{t.label}</span><span className="count">{t.count}</span>
+                </button>
+              ))}
+              <p className="powered">Muse Voice Transcribe<br />Muse Spark<br />Muse Wonder<br />SAM 3.1</p>
+            </nav>
+          )}
+          <div className="content">
+            <div className={show('live')}>
+              <CallPanel fleet={client} visitorId={visitor} onCallStart={(id) => { lastCall.current = id; }}>
+                <CollectPanel flow={door.flow} onCollect={door.collect} />
+              </CallPanel>
+            </div>
+            <div className={show('fleet')}>
+              <h2 className="tab-title">Fleet</h2>
+              <MetricsBar snap={snap} />
+              <section className="panel">{snap?.robots.map((r) => <RobotCard key={r.id} robot={r} now={snap.now} />)}</section>
+            </div>
+            <div className={show('deliveries')}><h2 className="tab-title">Deliveries</h2><TaskQueue snap={snap} /></div>
+            <div className={show('calls')}><h2 className="tab-title">Call log</h2><CallLogPanel records={records} /></div>
+            <div className={show('escalations')}><h2 className="tab-title">Escalations</h2><EscalationsPanel records={records} callId={lastCall.current} onChange={refreshRecords} /></div>
+            <div className={show('inventory')}><h2 className="tab-title">Inventory</h2><InventoryPanel records={records} /></div>
+            <div className={show('brain')}><h2 className="tab-title">Brain</h2><BrainLog entries={brainLog} /></div>
+            <div className={show('cameras')}><h2 className="tab-title">Cameras</h2><DoorCheckPanel flow={door.flow} /></div>
+            <div className={show('rooms')}><h2 className="tab-title">Room notices</h2><RoomNotifications items={notes} /></div>
           </div>
-          <SimView client={client} camera={camera} captureRef={capture} />
-          {door.flash > 0 && <div key={door.flash} className="flash" />}
-          {typeof camera === 'object' && <span className="povtag">{camera.robot === 'robot_1' ? 'Robot 1' : 'Robot 2'} {camera.pov === 'door' ? 'door camera' : 'cabin camera'}</span>}
-          {door.tip && (
-            <div className="tip" key={door.tip.id} role="status">
-              <span>{door.tip.text}</span>
-              <button className="close" aria-label="Dismiss" onClick={door.dismissTip}>×</button>
-            </div>
-          )}
-          {plan && (
-            <div className="plan">
-              <header>
-                <span>Battery fault: the brain re-plans</span>
-                <button className="close" aria-label="Dismiss" onClick={() => setPlan(null)}>×</button>
-              </header>
-              <BrainCard b={plan} />
-            </div>
-          )}
-          {door.resultOpen && door.flow && (door.flow.after ?? door.flow.before ?? door.flow.door) && (
-            <div className="result">
-              <header>
-                <span>{door.flow.after ? 'SAM 3.1: cabin after collection' : door.flow.before ? 'SAM 3.1: cabin on arrival' : 'SAM 3.1: door check'}</span>
-                <button className="close" aria-label="Dismiss" onClick={door.closeResult}>×</button>
-              </header>
-              {door.flow.after ? <CabinPhoto shot={door.flow.after} /> : door.flow.before ? <CabinPhoto shot={door.flow.before} /> : <DoorPhoto shot={door.flow.door!} />}
-              <small className="muted">{door.flow.after ? cabinLine(door.flow.after.result) : door.flow.before ? cabinLine(door.flow.before.result) : door.flow.door?.result ? `Plate reads ${door.flow.door.result.number ?? '?'}` : 'Checking…'}</small>
-            </div>
-          )}
-        </div>
-        <div className="below">
-          <TaskQueue snap={snap} />
-          <BrainLog entries={brainLog} />
         </div>
       </div>
-      <div className="col">
-        <section className="panel">
-          <h2>Fleet</h2>
-          {snap?.robots.map((r) => <RobotCard key={r.id} robot={r} />)}
-        </section>
-        <DoorCheckPanel flow={door.flow} />
-        <RoomNotifications items={notes} />
+      <div className="stage">
+        <div className="cams">
+          <span className="chip dark">MuJoCo · live in your browser</span>
+          {(['overview', 'robot_1', 'robot_2'] as const).map((m) => (
+            <button key={m} className={`chip dark ${camera === m ? 'on' : ''}`} onClick={() => setCamera(m)}>
+              {m === 'overview' ? 'Floor' : m === 'robot_1' ? 'Robot 1' : 'Robot 2'}
+            </button>
+          ))}
+        </div>
+        <SimView client={client} camera={camera} captureRef={capture} />
+        {door.flash > 0 && <div key={door.flash} className="flash" />}
+        {typeof camera === 'object' && <span className="povtag">{camera.robot === 'robot_1' ? 'Robot 1' : 'Robot 2'} {camera.pov === 'door' ? 'door camera' : 'cabin camera'}</span>}
+        {door.tip && (
+          <div className="tip" key={door.tip.id} role="status">
+            <span>{door.tip.text}</span>
+            <button className="close" aria-label="Dismiss" onClick={door.dismissTip}>×</button>
+          </div>
+        )}
+        {plan && (
+          <div className="plan">
+            <header>
+              <span>Battery fault: the brain re-plans</span>
+              <button className="close" aria-label="Dismiss" onClick={() => setPlan(null)}>×</button>
+            </header>
+            <BrainCard b={plan} />
+          </div>
+        )}
+        {door.resultOpen && door.flow && (door.flow.after ?? door.flow.before ?? door.flow.door) && (
+          <div className="result">
+            <header>
+              <span>{door.flow.after ? 'SAM 3.1: cabin after collection' : door.flow.before ? 'SAM 3.1: cabin on arrival' : 'SAM 3.1: door check'}</span>
+              <button className="close" aria-label="Dismiss" onClick={door.closeResult}>×</button>
+            </header>
+            {door.flow.after ? <CabinPhoto shot={door.flow.after} /> : door.flow.before ? <CabinPhoto shot={door.flow.before} /> : <DoorPhoto shot={door.flow.door!} />}
+            <small className="muted">{door.flow.after ? cabinLine(door.flow.after.result) : door.flow.before ? cabinLine(door.flow.before.result) : door.flow.door?.result ? `Plate reads ${door.flow.door.result.number ?? '?'}` : 'Checking…'}</small>
+          </div>
+        )}
       </div>
     </main>
   );

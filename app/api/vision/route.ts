@@ -3,7 +3,7 @@
 // leaves that part empty. Cabin: SAM 3.1 looks for each item, and reports the
 // ones it could not check so they are never mistaken for collected.
 import { chat, segment, MODELS } from '@/lib/meta/client.ts';
-import { parseBoxes, readRoomNumber, ITEM_KINDS, ITEM_PROMPTS, type Box, type CabinCheck, type DoorCheck, type ItemKind } from '@/lib/vision/doorcheck.ts';
+import { assignBoxes, parseBoxes, readRoomNumber, ITEM_KINDS, ITEM_PROMPTS, type Box, type CabinCheck, type DoorCheck, type ItemKind } from '@/lib/vision/doorcheck.ts';
 import { ROOMS } from '@/lib/hotel.ts';
 import { callIsRecent, LIMITS } from '@/lib/limits.ts';
 
@@ -23,15 +23,14 @@ export async function POST(req: Request) {
   if (validItems) {
     const results = await Promise.all(items.map(async (kind) => {
       try {
-        // Asked in parallel, but the first prompt to find it wins.
         const answers = await Promise.all(ITEM_PROMPTS[kind].map((p) => segment(p, image, TIMEOUT_MS)));
-        return { kind, box: answers.map((t) => parseBoxes(t)[0]).find(Boolean) ?? null, ok: true };
+        return { kind, boxes: answers.flatMap(parseBoxes), ok: true };
       } catch {
-        return { kind, box: null as Box | null, ok: false };
+        return { kind, boxes: [] as Box[], ok: false };
       }
     }));
     return Response.json({
-      found: Object.fromEntries(results.filter((r) => r.ok).map((r) => [r.kind, r.box])),
+      found: assignBoxes(Object.fromEntries(results.filter((r) => r.ok).map((r) => [r.kind, r.boxes]))),
       failed: results.filter((r) => !r.ok).map((r) => r.kind),
       ms: Date.now() - t0,
     } satisfies CabinCheck);

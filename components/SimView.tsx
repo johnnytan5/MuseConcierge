@@ -8,7 +8,6 @@ import * as THREE from 'three';
 import type { FleetClient } from '@/lib/sim/client.ts';
 import type { GeomInfo } from '@/lib/sim/protocol.ts';
 import type { RobotId } from '@/lib/fleet/types.ts';
-import { NODES } from '@/lib/fleet/nav.ts';
 import { buildDoorstep, doorCamera, captureJpeg, PHOTO_LAYER, FRAME } from './doorstep.ts';
 import { buildCabin, type Cabin } from './items.ts';
 import type { ItemKind } from '@/lib/vision/doorcheck.ts';
@@ -25,7 +24,7 @@ export type SimCapture = {
   guestView(robot: RobotId, reaching?: boolean): string | null;
 };
 
-const OVERVIEW_DIR = new THREE.Vector3(0, -0.5, 1).normalize(); // from the floor centre toward the overview camera
+const OVERVIEW_DIR = new THREE.Vector3(0, -0.14, 1).normalize(); // from the floor centre toward the overview camera
 
 const GEOM = { plane: 0, sphere: 2, capsule: 3, ellipsoid: 4, cylinder: 5, box: 6 } as const;
 
@@ -45,7 +44,7 @@ function meshFor(g: GeomInfo): THREE.Mesh | null {
   mesh.castShadow = g.type !== GEOM.plane;
   mesh.receiveShadow = true;
   // The door camera's photo layer has its own walls, doors and floor.
-  if (!/^(wall_|door_|floor$)/.test(g.name)) mesh.layers.enable(PHOTO_LAYER);
+  if (!/^(wall_|door_|carpet_)/.test(g.name)) mesh.layers.enable(PHOTO_LAYER);
   return mesh;
 }
 
@@ -82,37 +81,37 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#1b1d22');
+    scene.background = new THREE.Color('#b4b4b4');
     const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 1.2);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(4, -3, 9);
+    sun.position.set(0, -2, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 });
-    sun.target.position.set(5.5, 0, 0);
+    Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+    sun.target.position.set(1.35, 0.85, 0);
     scene.add(sun, sun.target);
     hemi.layers.enableAll();
     sun.layers.enableAll();
-    buildDoorstep(scene);
 
     const cam = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
     cam.up.set(0, 0, 1);
 
-    for (const room of ['801', '802', '803', '804', '805', '806']) {
-      const [x, y] = NODES[`door_${room}`];
-      const s = label(room);
-      s.position.set(x, y > 0 ? 1.95 : -1.95, 1.0);
+    // Room labels stand over each room's bed; dock labels sit past the lobby
+    // walls so they never cover a docked robot's own tag.
+    const roomLabels: Record<string, [number, number]> = { 803: [1, -1.15], 804: [2, 1.15], 1204: [4.15, 1], 1205: [1.85, 2] };
+    for (const [room, [x, y]] of Object.entries(roomLabels)) {
+      const s = label(room, '#1d1d1f', 0.2);
+      s.position.set(x, y, 1.3);
       scene.add(s);
     }
-    // Dock labels sit by the wall so they never cover a docked robot's own tag.
-    const fixed: [string, string, number, number, number][] = [['Pickup', '#1f4e79', 2.5, -1.75, 1.35], ['Dock 1', '#a36100', -0.55, -1.35, 0.5], ['Dock 2', '#14705a', -0.55, 1.35, 0.5]];
+    const fixed: [string, string, number, number, number][] = [['Front desk', '#1d1d1f', -1.2, 0, 1.2], ['Dock 1', '#a36100', -0.62, -1.12, 1.1], ['Dock 2', '#14705a', -0.62, 1.12, 1.1]];
     for (const [text, color, x, y, z] of fixed) {
-      const s = label(text, color, 0.4);
+      const s = label(text, color, 0.17);
       s.position.set(x, y, z);
       scene.add(s);
     }
-    const robotTags = { robot_1: label('Robot 1', '#a36100', 0.42), robot_2: label('Robot 2', '#14705a', 0.42) };
+    const robotTags = { robot_1: label('Robot 1', '#a36100', 0.17), robot_2: label('Robot 2', '#14705a', 0.17) };
     scene.add(robotTags.robot_1, robotTags.robot_2);
 
     let meshes: (THREE.Mesh | null)[] = [];
@@ -120,6 +119,7 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
     const cabins = {} as Record<RobotId, Cabin>;
     const unsubscribe = client.subscribe({
       onStatic(geoms) {
+        buildDoorstep(scene, geoms);
         meshes = geoms.map((g) => {
           const m = meshFor(g);
           if (m) scene.add(m);
@@ -198,7 +198,7 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
     // Overview frames the whole floor; follow sits behind and above a robot.
     const goal = new THREE.Vector3();
     const look = new THREE.Vector3();
-    const lookAt = new THREE.Vector3(5.6, 0.3, 0);
+    const lookAt = new THREE.Vector3(1.35, 0.85, 0);
     let raf = 0;
     const loop = () => {
       const mode = cameraMode.current;
@@ -206,9 +206,15 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
         const body = meshes[bodyIdx[mode.robot]];
         const pov = !body ? null : mode.pov === 'cabin' ? cabins[mode.robot]?.camera : doorCamera(new THREE.Vector3().setFromMatrixPosition(body.matrix), mode.room);
         if (pov) {
-          pov.aspect = el.clientWidth / Math.max(1, el.clientHeight);
+          // Same sideways view as the photo, however tall the stage is.
+          const aspect = el.clientWidth / Math.max(1, el.clientHeight);
+          const photoFov = pov.fov;
+          const frameAspect = FRAME.w / FRAME.h;
+          pov.aspect = aspect;
+          if (aspect < frameAspect) pov.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(photoFov / 2)) * (frameAspect / aspect)));
           pov.updateProjectionMatrix();
           renderer.render(scene, pov);
+          pov.fov = photoFov;
           raf = requestAnimationFrame(loop);
           return;
         }
@@ -218,16 +224,16 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
       if (mesh) {
         const p = new THREE.Vector3().setFromMatrixPosition(mesh.matrix);
         const fwd = new THREE.Vector3(mesh.matrix.elements[0], mesh.matrix.elements[1], 0).normalize();
-        goal.copy(p).addScaledVector(fwd, -1.6).add(new THREE.Vector3(0, 0, 1.3));
-        look.copy(p).addScaledVector(fwd, 1.2);
+        goal.copy(p).addScaledVector(fwd, -0.9).add(new THREE.Vector3(0, 0, 2.1));
+        look.copy(p).addScaledVector(fwd, 0.5);
       } else {
         // Back off along a fixed viewing angle just far enough that the whole
-        // floor (13.4 m x 4.2 m) fits the stage at its current aspect.
+        // floor (6.6 m x 5.1 m) fits the stage at its current aspect.
         const vHalf = THREE.MathUtils.degToRad(cam.fov / 2);
         const hHalf = Math.atan(Math.tan(vHalf) * cam.aspect);
-        const d = 1.04 * Math.max(6.7 / Math.tan(hHalf), 3.4 / Math.tan(vHalf));
-        goal.set(5.6, 0.3, 0).addScaledVector(OVERVIEW_DIR, d);
-        look.set(5.6, 0.3, 0);
+        const d = 1.06 * Math.max(3.4 / Math.tan(hHalf), 2.7 / Math.tan(vHalf));
+        goal.set(1.35, 0.85, 0).addScaledVector(OVERVIEW_DIR, d);
+        look.set(1.35, 0.85, 0);
       }
       cam.position.lerp(goal, 0.08);
       lookAt.lerp(look, 0.12);
@@ -235,7 +241,7 @@ export default function SimView({ client, camera = 'overview', captureRef }: { c
       renderer.render(scene, cam);
       raf = requestAnimationFrame(loop);
     };
-    cam.position.set(5.6, -5.6, 11);
+    cam.position.set(1.35, -0.5, 10);
     loop();
 
     return () => {

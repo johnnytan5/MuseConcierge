@@ -20,7 +20,7 @@ export default function CollectPanel({ flow, onCollect }: { flow: DoorFlow | nul
   const ready = !!flow && ['waiting', 'still_there', 'unknown'].includes(flow.step);
   return (
     <section className="panel">
-      <h2>At the door</h2>
+      <h6>At the door</h6>
       <button className="btn primary" disabled={!ready} onClick={onCollect}>
         {flow?.step === 'still_there' || flow?.step === 'unknown' ? 'Check the cabin again' : 'Mimic collection'}
       </button>
