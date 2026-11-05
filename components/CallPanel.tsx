@@ -9,8 +9,10 @@ import { CallSession, type CallLog } from '@/lib/agent/session.ts';
 import type { FleetApi } from '@/lib/agent/tools.ts';
 import { deductStock, escalate, logCall } from '@/lib/admin/client.ts';
 import { ROOMS } from '@/lib/hotel.ts';
+import { callLimit } from '@/lib/call-limit.ts';
 
 const DEFAULT_ROOM = '804';
+const { enabled, perDay } = callLimit();
 const PREFERRED = (process.env.NEXT_PUBLIC_ASR_PROVIDER as AsrProvider | undefined) ?? 'meta';
 
 type Line = { who: 'guest' | 'agent' | 'system'; text: string; detail?: string };
@@ -128,7 +130,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children, flo
           <button className={live ? 'btn danger' : 'btn primary'} disabled={!fleet || busy} onClick={live ? () => hangup.current() : start}>
             {busy ? 'Connecting…' : live ? 'Hang up' : 'Call the front desk'}
           </button>
-          <p className="muted">Uses your microphone. Ask for towels or an Uber Eats order. Up to 3 calls a day; your IP address is logged to enforce this.</p>
+          <p className="muted">Uses your microphone. Ask for towels or an Uber Eats order.{enabled && ` Up to ${perDay} calls a day; your IP address is logged to enforce this.`}</p>
         </div>
       </section>
       {children}

@@ -110,6 +110,8 @@ Put these in `.env`, which git ignores. **API keys are never committed**, so use
 | `ASR_RELAY_ORIGINS` | Hosted only | Pages allowed to use the relay, comma-separated | Your site's origin |
 | `CRON_SECRET` | Hosted only | Protects the daily keep-alive route | Any long random value, set in Vercel |
 | `TTS_VOICE` | No | AssemblyAI voice id. Defaults to `aai-sara` | AssemblyAI voice list |
+| `NEXT_PUBLIC_CALL_LIMIT_ENABLED` | No | `false` turns off the daily call limit on the hosted site. On by default. Rebuild after changing | |
+| `NEXT_PUBLIC_CALLS_PER_IP_PER_DAY` | No | Calls per IP per day when the limit is on. Defaults to 3. Rebuild after changing | |
 | `NEXT_PUBLIC_DEMO_MODE` | No | `1` fires the battery fault automatically | |
 | `NEXT_PUBLIC_ASR_PROVIDER` | No | `assemblyai` forces the backup transcriber | |
 | `SPARK_MODEL`, `BRAIN_MODEL`, `SAM_MODEL` | No | Model overrides | |
@@ -145,7 +147,7 @@ npm run e2e                                 # the whole demo with real models: a
 - **Robot cameras:** SAM 3.1 found nothing in the flat-shaded overview, even for "door". So the cameras render a second layer of the same floor with textured walls, carpet, wooden doors and brass number plates (`components/doorstep.ts`), plus modelled items in the cabin (`components/items.ts`). The robots in those frames are the MuJoCo robots. Real camera frames would replace this layer on hardware.
 - **Collection is simulated:** the button and the animation stand in for a guest. SAM's checks on the frames before and after are real. Prompts were tuned on these rendered frames (the food bag is "green bag"), and items without a model skip the cabin check.
 - **The food bag is generic:** an Uber Eats order rides in an unbranded delivery bag.
-- **Spend limits:** the hosted demo allows 3 calls per IP per day.
+- **Spend limits:** the hosted demo allows 3 calls per IP per day by default (see `NEXT_PUBLIC_CALLS_PER_IP_PER_DAY`).
 
 ## Repository layout
 

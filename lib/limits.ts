@@ -1,8 +1,9 @@
 // Spend limits for the hosted demo: a guest call must be started through
 // /api/call/start (capped per IP per day), and the Meta-backed routes only
 // serve requests that carry a recent call id. Skipped in development.
+import { callLimit } from './call-limit.ts';
+
 export const LIMITS = {
-  callsPerIpPerDay: 3,
   callMinutes: 6, // agent and transcriber tokens: one call's length plus slack
   brainMinutes: 20, // the fleet keeps asking the brain after the call ends
 };
@@ -23,12 +24,16 @@ export function clientIp(req: Request): string {
 export async function startCall(req: Request, visitorId: string): Promise<{ callId: string } | { error: string; status: number }> {
   const callId = `muse_${crypto.randomUUID().slice(0, 12)}`;
   if (!enforced()) return { callId };
-  const ip = clientIp(req);
-  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const res = await rest(`muse_calls?ip=eq.${encodeURIComponent(ip)}&started_at=gte.${since}&select=id`, { headers: { Prefer: 'count=exact' } });
-  if (!res.ok) return { error: 'call limits unavailable', status: 503 };
-  const used = Number(res.headers.get('content-range')?.split('/')[1] ?? 0);
-  if (used >= LIMITS.callsPerIpPerDay) return { error: `Daily limit reached (${LIMITS.callsPerIpPerDay} calls). Try again tomorrow.`, status: 429 };
+  const { enabled, perDay } = callLimit();
+  const ip = enabled ? clientIp(req) : 'not recorded'; // no limit, so no reason to keep the address
+  if (enabled) {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const res = await rest(`muse_calls?ip=eq.${encodeURIComponent(ip)}&started_at=gte.${since}&select=id`, { headers: { Prefer: 'count=exact' } });
+    if (!res.ok) return { error: 'call limits unavailable', status: 503 };
+    const used = Number(res.headers.get('content-range')?.split('/')[1] ?? 0);
+    if (used >= perDay) return { error: `Daily limit reached (${perDay} calls). Try again tomorrow.`, status: 429 };
+  }
+  // Recorded even with the limit off: the other routes only serve a recent call id.
   const ins = await rest('muse_calls', { method: 'POST', body: JSON.stringify({ id: callId, ip, visitor_id: visitorId.slice(0, 64) }) });
   if (!ins.ok) return { error: 'call limits unavailable', status: 503 };
   return { callId };
