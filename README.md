@@ -10,7 +10,7 @@ Built for the **Meta Global AI Developer Hackathon** (indie track, Push the Fron
 
 1. **Clean start.** Both robots are docked and the task queue is empty. **Reset demo** returns to this state at any time.
 2. **A guest calls.** "Two towels and my Uber Eats order, please." The call comes from a known room, so the agent doesn't ask for it. Muse Voice Transcribe hears the request, and the Spark agent creates one task for one cabin and gives an ETA.
-3. **The agent checks for anything else.** It asks before ending the call. Anything a robot can't bring, such as a late checkout, goes to the front desk as an escalation.
+3. **The agent checks for anything else.** It asks before ending the call. It answers questions about the hotel from a seeded fact sheet (`lib/hotel-facts.ts`), and anything else a robot can't bring, such as arranging a late checkout, goes to the front desk as an escalation.
 4. **The brain assigns a robot.** Muse Wonder gets the new-order event and picks one of the options the engine computed. Staff load the cabin and press **Bin loaded**.
 5. **A battery fault hits mid-delivery**, dropping the robot to 9%. The engine works out every option with its ETA: carry on (not feasible), charge first, or hand off to the other robot.
 6. **The brain hands the order over.** A plan card shows every option with its ETA, the one Wonder picked and why, and what follows from it. The faulted robot goes home to charge, and the other robot loads the order and delivers.
@@ -25,7 +25,7 @@ The console shows all of it live: the call and a "What happened" flow, fleet sta
 | Job | Model | Notes |
 |---|---|---|
 | Hearing the guest | **Muse Voice Transcribe** (`muse-voice-transcribe-1.0`) | Streaming, endpointing, keyword biasing on room numbers and item names |
-| Talking to the guest, calling tools | **Muse Spark** (`muse-spark-1.1`) | `create_task`, `get_task_status`, `cancel_task`, `escalate_to_frontdesk`, `end_call`. One agent per call |
+| Talking to the guest, calling tools | **Muse Spark** (`muse-spark-1.1`) | `create_task`, `get_task_status`, `cancel_task`, `hotel_info`, `escalate_to_frontdesk`, `end_call`. One agent per call |
 | Running the fleet | **Muse Wonder** (`muse-wonder-1.0`) | Called only on events. Picks one engine-computed option and answers in JSON |
 | Seeing | **SAM 3.1** (`sam-3.1`) + **Muse Spark** | At the door, SAM boxes the door and the number plate and Spark reads the number. In the cabin, SAM finds each item before collection and confirms the cabin is empty after it |
 

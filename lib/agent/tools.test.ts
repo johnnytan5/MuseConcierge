@@ -64,6 +64,14 @@ test('cancel_task → {cancelled: true}', async () => {
   assert.ok('error' in await runTool('cancel_task', { task_id: 'nope' }, stubFleet(), ctx));
 });
 
+test('hotel_info answers from the fact sheet, and an unknown topic says to escalate', async () => {
+  const r = await runTool('hotel_info', { topic: 'facilities' }, stubFleet(), ctx) as { answer: string };
+  assert.match(r.answer, /Pool on level 5, open 7am to 9pm/);
+  const none = await runTool('hotel_info', { topic: 'spa' }, stubFleet(), ctx) as { error: string };
+  assert.match(none.error, /escalate_to_frontdesk/);
+  assert.ok('error' in await runTool('hotel_info', { topic: 'constructor' }, stubFleet(), ctx));
+});
+
 test('end_call → {ended: true}; unknown tool → error', async () => {
   assert.deepEqual(await runTool('end_call', {}, stubFleet(), ctx), { ended: true });
   assert.ok('error' in await runTool('fly', {}, stubFleet(), ctx));

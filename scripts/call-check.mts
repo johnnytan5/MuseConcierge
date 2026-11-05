@@ -19,6 +19,8 @@ const { items } = await (await fetch(`${BASE}/api/inventory`)).json();
 let ended = false;
 const call = new CallSession('check', fleet, items, {
   agentUrl: `${BASE}/api/agent`,
+  room: process.env.ROOM,
+  escalate: () => {},
   onSay: async () => {},
   onEnd: () => { ended = true; },
   onLog: (e) => console.log(e.kind.padEnd(5), JSON.stringify({ ...e, kind: undefined })),
@@ -27,4 +29,4 @@ for (const line of LINES) {
   if (ended) break;
   await call.onGuest(line);
 }
-console.log(created.length === 1 && ended ? 'OK one task created, call ended' : `CHECK created=${created.length} ended=${ended}`);
+console.log(ended && created.length <= 1 ? `OK ${created.length} task, call ended` : `CHECK created=${created.length} ended=${ended}`);

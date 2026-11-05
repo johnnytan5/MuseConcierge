@@ -94,6 +94,14 @@ test('an escalation also asks for anything else', async (t) => {
   assert.equal(ended(), 0);
 });
 
+test('an answered question also asks for anything else', async (t) => {
+  script([{ tool_calls: [call('hotel_info', { topic: 'wifi' })] }, { content: 'Sign in with your room number and surname.' }], t);
+  const { s, said, ended } = session();
+  await s.onGuest('how do I get on the wifi');
+  assert.equal(said.at(-1), 'Is there anything else I can help with?');
+  assert.equal(ended(), 0);
+});
+
 test('a read-back does not end the call', async (t) => {
   script([{ content: 'That is room 804?' }], t);
   const { s, ended } = session();

@@ -69,7 +69,7 @@ export class CallSession {
     this.onLog({ kind: 'guest', text });
     this.messages.push({ role: 'user', content: text });
     let hangUp = false;
-    let done = false; // this turn placed an order or reached the front desk
+    let done = false; // this turn placed an order, answered a question or reached the front desk
     let spoke = false;
     let asked = false;
     let usedTool = false;
@@ -105,7 +105,7 @@ export class CallSession {
         this.onLog({ kind: 'tool', name: call.function.name, args, result, ms });
         this.messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         if (call.function.name === 'end_call') hangUp = true;
-        if ((call.function.name === 'create_task' || call.function.name === 'escalate_to_frontdesk') && !('error' in result)) done = true;
+        if (['create_task', 'escalate_to_frontdesk', 'hotel_info'].includes(call.function.name) && !('error' in result)) done = true;
       }
       if (hangUp || (heldOpen && spoke)) break;
     }
