@@ -37,11 +37,11 @@ export function connectMeta(keywords: string[], h: AsrHandlers): Promise<AsrConn
       } else if (m.type === 'speechComplete' && m.transcript?.trim()) {
         h.onFinal(m.transcript.trim());
       } else if (m.type === 'error') {
-        h.onError(m.message);
+        if (!/backlog/i.test(m.message)) h.onError(m.message); // Muse then closes; asr.ts reconnects
       }
     };
 
     ws.onerror = () => { if (!ready) reject(new Error(`cannot reach ASR relay at ${RELAY_URL}`)); };
-    ws.onclose = (ev) => { if (ready && !closing && ev.code !== 1000) h.onError(`transcriber closed (${ev.code} ${ev.reason})`); };
+    ws.onclose = (ev) => { if (ready && !closing && ev.code !== 1000) h.onClosed?.(`transcriber closed (${ev.code} ${ev.reason})`); };
   });
 }

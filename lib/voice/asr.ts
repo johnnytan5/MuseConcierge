@@ -7,10 +7,12 @@ import { connectAssemblyAI } from './asr-assemblyai.ts';
 
 export type AsrProvider = 'meta' | 'assemblyai';
 
-export type AsrHandlers = { onPartial(t: string): void; onFinal(t: string): void; onError(msg: string): void };
+export type AsrHandlers = { onPartial(t: string): void; onFinal(t: string): void; onError(msg: string): void; onClosed?(msg: string): void };
 
 // The adapter contract each provider implements.
 export type AsrConnection = { send(frame: ArrayBuffer): void; close(): void };
+
+const MAX_RECONNECTS = 3; // Muse can drop a healthy session ("Audio processing backlog too large")
 
 export const KEYWORDS = [
   // Phrases, not bare numbers: Muse hears "room eight..." as "roommate" otherwise.
@@ -25,9 +27,20 @@ export async function openAsr(opts: AsrHandlers & {
   keywords: string[];
   gate: Gate;
 }): Promise<{ stop(): void }> {
-  const conn = opts.provider === 'meta'
-    ? await connectMeta(opts.keywords, opts)
-    : await connectAssemblyAI(opts.keywords, opts, opts.callId);
+  let stopped = false;
+  let reconnects = 0;
+  const handlers: AsrHandlers = {
+    ...opts,
+    onClosed: (msg) => {
+      if (stopped) return;
+      if (++reconnects > MAX_RECONNECTS) return opts.onError(msg);
+      connect().then((c) => { if (stopped) c.close(); else conn = c; }).catch(() => opts.onError(msg));
+    },
+  };
+  const connect = () => (opts.provider === 'meta'
+    ? connectMeta(opts.keywords, handlers)
+    : connectAssemblyAI(opts.keywords, handlers, opts.callId));
+  let conn = await connect();
 
   const ctx = new AudioContext({ sampleRate: 16000 });
   await ctx.audioWorklet.addModule('/voice/mic-worklet.js');
@@ -41,6 +54,7 @@ export async function openAsr(opts: AsrHandlers & {
 
   return {
     stop() {
+      stopped = true;
       src.disconnect();
       node.disconnect();
       void ctx.close();
