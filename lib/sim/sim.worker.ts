@@ -58,7 +58,6 @@ function handle(req: Request): Reply {
     case 'snapshot': return fleet.snapshot();
     case 'reset':
       fleet = new Fleet(Date.now, opts());
-      fleet.seedDemo();
       placeRobots();
       return true;
   }
@@ -72,7 +71,6 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
       demo = msg.demo;
       mj.mj_resetData(model, data);
       fleet = msg.snapshot ? Fleet.restore(msg.snapshot as FleetSnapshot, Date.now, opts()) : new Fleet(Date.now, opts());
-      if (!msg.snapshot) fleet.seedDemo();
       placeRobots();
       run(model, data);
     } else {

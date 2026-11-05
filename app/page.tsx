@@ -47,6 +47,7 @@ export default function Console() {
   const [plan, setPlan] = useState<BrainEntry | null>(null);
   const [tab, setTab] = useState<Tab>('live');
   const [liveCall, setLiveCall] = useState<{ id: string; room: string } | null>(null);
+  const [run, setRun] = useState(0); // bumped by Reset demo: the call panel starts over
   const [menuOpen, setMenuOpen] = useState(true);
   const [demo, setDemo] = useState(false);
   const saved = useRef({ id: '', dirty: false, persist: true });
@@ -160,6 +161,9 @@ export default function Console() {
     setNotes([]);
     setPlan(null);
     setLiveCall(null);
+    setRun((n) => n + 1);
+    setTab('live');
+    lastCall.current = null;
     door.reset();
     setCamera('overview');
     await client.reset();
@@ -170,8 +174,7 @@ export default function Console() {
     void logCall(lastCall.current, { tool: { name: 'bin_loaded', args: { robot: r.id, task: r.taskId }, result: { sent: true }, summary: 'Staff loaded the cabin; robot on its way' } });
   }
 
-  const r1 = snap?.robots.find((r) => r.id === 'robot_1');
-  const canFault = !!r1?.taskId && !r1.fault;
+  const faultable = snap?.robots.find((r) => r.taskId && !r.fault);
   const moving = snap?.robots.filter((r) => ['to_pickup', 'to_room', 'returning'].includes(r.phase)).length ?? 0;
   const tabs: { id: Tab; label: string; count: string }[] = [
     { id: 'live', label: 'Live call', count: '–' },
@@ -194,8 +197,8 @@ export default function Console() {
           <span className="spacer" />
           {error && <span className="top-error">{error}</span>}
           <span className="live-dot">Live</span>
-          {demo && <span className="tag" title="Battery fault fires automatically on robot 1's first delivery">Demo mode</span>}
-          <button className="btn small" disabled={!canFault} onClick={() => client?.fault('robot_1')} title="Drop robot 1's battery to 9% mid-delivery">Battery fault</button>
+          {demo && <span className="tag" title="Battery fault fires automatically on the first delivery">Demo mode</span>}
+          <button className="btn small" disabled={!faultable} onClick={() => faultable && client?.fault(faultable.id)} title="Drop the delivering robot's battery to 9%">Battery fault</button>
           <button className="btn small" onClick={reset}>Reset demo</button>
         </div>
         <div className="body">
@@ -212,6 +215,7 @@ export default function Console() {
           <div className="content">
             <div className={show('live')}>
               <CallPanel
+                key={run}
                 fleet={client}
                 visitorId={visitor}
                 onCallStart={(id, room) => { lastCall.current = id; setLiveCall({ id, room }); }}

@@ -26,6 +26,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children, flo
   const add = (l: Line) => setLines((ls) => [...ls, l]);
   const transcript = useRef<HTMLOListElement>(null);
   useEffect(() => { transcript.current?.scrollTo({ top: transcript.current.scrollHeight }); }, [lines, partial]);
+  useEffect(() => () => hangup.current(), []); // Reset demo mid-call must not leave the mic open
 
   async function start() {
     if (!fleet || busy) return;
@@ -36,6 +37,7 @@ export default function CallPanel({ fleet, visitorId, onCallStart, children, flo
     let stream: MediaStream | null = null;
     let openCallId: string | null = null;
     const stop = () => {
+      hangup.current = () => {}; // once only: the mic's AudioContext can't close twice
       if (openCallId) void logCall(openCallId, { end: true });
       openCallId = null;
       asr?.stop();

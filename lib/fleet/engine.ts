@@ -290,7 +290,7 @@ export class Fleet implements FleetApi {
   }
 
   maybeDemoFault(r: Robot): void {
-    if (!this.demoFault || this.faultFired || r.id !== 'robot_1' || r.phase !== 'to_room') return;
+    if (!this.demoFault || this.faultFired || r.phase !== 'to_room') return;
     const t = this.tasks.find((x) => x.id === r.taskId);
     if (t?.kind !== 'guest') return;
     // Mid-corridor, or a metre short of the door for rooms before that point.

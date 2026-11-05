@@ -74,7 +74,9 @@ async function see(sel, re, what, timeout = 60000) {
 try {
   await page.goto(URL);
   await page.waitForFunction(() => !document.querySelector('.call button')?.disabled, null, { timeout: 60000 });
-  await see('.notes, .tasks', /hk1|linen/, 'housekeeping already running on robot 2');
+  const clean = () => page.evaluate(async () => { const s = await window.__fleet.getSnapshot(); return s.tasks.length === 0 && s.robots.every((r) => !r.taskId); });
+  if (!(await clean())) throw new Error('a fresh start should have no tasks');
+  pass('fresh start: no tasks, robots parked');
   await page.waitForTimeout(1500);
 
   // A room that isn't the default, to prove the dropdown drives everything.
@@ -97,19 +99,19 @@ try {
   await loaded.waitFor({ timeout: 45000 });
   await loaded.click();
   pass('robot 1 loaded at the desk with Bin loaded');
-  await see('.stage .plan', /Hand off to robot 2.*Muse Wonder/, 'battery fault: plan card shows the options and Wonder\'s pick', 90000);
+  await see('.stage .plan', /Hand off to robot \d.*Muse Wonder/, 'battery fault: plan card shows the options and Wonder\'s pick', 90000);
   if ((await page.evaluate(() => window.__tones)) !== 6) throw new Error('the fault should play the alert once (6 tones)');
   pass('fault alert sounded once');
   const plan = await text('.stage .plan');
   console.log(`\n--- plan ---\n${plan}\n------------\n`);
-  if (!/Charge first/.test(plan) || !/pauses hk1/.test(plan)) throw new Error('plan card is missing options or steps');
+  if (!/Charge first/.test(plan)) throw new Error('plan card is missing options or steps');
   if (!(await page.locator('.stage .plan .chosen').innerText()).includes('Hand off')) throw new Error('chosen option is not the handoff');
   await shot('1-brain-plan');
   await page.locator('.stage .plan .close').click();
   await loaded.waitFor({ timeout: 45000 });
   await shot('1b-bin-loaded');
   await loaded.click();
-  pass('robot 2 loaded at the desk with Bin loaded');
+  pass('the other robot loaded at the desk with Bin loaded');
 
   await see('.stage .povtag', new RegExp(`Guest.s view, room ${ROOM}`), 'stage switches to the guest\'s view on arrival', 120000);
   await shot('2a-guest-door-closed');
@@ -118,7 +120,7 @@ try {
   await page.waitForTimeout(1500);
   await shot('2c-guest-door-open');
 
-  await see('.stage .povtag', /Robot 2 cabin camera/, 'then to the cabin camera');
+  await see('.stage .povtag', /Robot \d cabin camera/, 'then to the cabin camera');
   await see('.stage .tip', /Picture taken.*SAM 3\.1/, 'cabin photo: flash and tooltip');
   await see('.checks', /Right door/, 'room number check: SAM boxes, Spark read the plate', 30000);
   await see('.checks', /towel \d\.\d+.*food bag \d\.\d+|food bag \d\.\d+.*towel \d\.\d+/, 'SAM sees both items in the cabin', 30000);
@@ -150,11 +152,10 @@ try {
   await page.locator('.live-flow').scrollIntoViewIfNeeded();
   await shot('5b-live-what-happened');
   await see('.notes', /Collected/, 'room notified');
-  await see('.panel', /Robot 2\s*Returning/, 'robot 2 closes up and leaves', 20000);
+  await see('.panel', /Robot \d\s*Returning/, 'the robot closes up and leaves', 20000);
   // Nothing may still offer an action for a delivery that is over.
   if (await page.getByRole('button', { name: /Mimic collection|Check the cabin again/ }).count()) throw new Error('a finished delivery still offers Mimic collection');
   await see('.robot-actions', new RegExp(`Last delivery, room ${ROOM}: collected`), 'finished delivery shows as the last delivery');
-  await see('.brainlog', /hk1 resumed/, 'brain resumes housekeeping', 90000);
 
   // The call's complete record, from the shared database.
   await page.getByRole('button', { name: /^Call log/ }).click();
@@ -177,18 +178,23 @@ try {
   await page.getByRole('button', { name: 'Resolved', exact: true }).click();
   await see('.escalation.resolved', new RegExp(reason), 'escalation resolves', 15000);
   await shot('9-escalations');
-  // Housekeeping resumes after the order, then robot 2 must come home by itself.
   await page.getByRole('button', { name: /^Fleet/ }).click();
-  await see('.robot_2', /On housekeeping, back in/, 'robot 2 parks at 1205 with a visible countdown', 45000);
-  await shot('10-housekeeping');
-  await see('.robot_2', /Docked, charging/, 'housekeeping ends and robot 2 returns to its dock', 170000);
-  const pctOf = async () => Number((await text('.robot_2 .battery')).replace('%', ''));
-  const before = await pctOf();
+  await see('.robot_1', /Docked|Charging/, 'robot 1 is home', 170000);
+  await see('.robot_2', /Docked|Charging/, 'robot 2 is home', 170000);
+  const pcts = async () => Promise.all(['.robot_1', '.robot_2'].map(async (r) => Number((await text(`${r} .battery`)).replace('%', ''))));
+  const before = await pcts();
   await page.waitForTimeout(16000);
-  if (!(await pctOf() > before)) throw new Error('a docked robot should be charging');
+  const after = await pcts();
+  if (!after.some((p, i) => p > before[i])) throw new Error(`a docked robot should be charging: ${before} -> ${after}`);
   pass('docked robot\'s battery is rising');
   await shot('11-home');
   await shot('6-done');
+  await page.getByRole('button', { name: /^Live call/ }).click();
+  await page.getByRole('button', { name: 'Reset demo' }).click();
+  await see('.call', /Waiting for a call/, 'Reset demo clears the call log');
+  if (await page.locator('.live-flow').count()) throw new Error('Reset demo left What happened on screen');
+  await page.waitForFunction(async () => { const s = await window.__fleet.getSnapshot(); return s.tasks.length === 0 && s.robots.every((r) => !r.taskId); }, null, { timeout: 5000 });
+  pass('Reset demo leaves no tasks and parked robots');
   if (errors.length) throw new Error(`page errors: ${errors.join('; ')}`);
   console.log(`\nPASS in ${Math.round((Date.now() - t0) / 1000)} s`);
 } catch (e) {
